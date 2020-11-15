@@ -448,3 +448,11 @@ optfile net	test/nettest.c
 defoption syscalls
 optfile syscalls syscall/proc_syscalls.c
 optfile syscalls syscall/file_syscalls.c
+
+########################################
+#                                      #
+#                Paging                #
+#                                      #
+########################################
+
+defoption paging

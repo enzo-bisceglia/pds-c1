@@ -32,3 +32,4 @@ options sfs			# Always use the file system
 #options dumbvm			# Chewing gum and baling wire.
 #options hello			# HELLOOOOOOOOOOOO
 options syscalls		# ASST2
+options paging			# PAGING
