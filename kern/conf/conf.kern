@@ -456,3 +456,5 @@ optfile syscalls syscall/file_syscalls.c
 ########################################
 
 defoption paging
+optfile paging vm/smartvm.c
+optfile paging vm/coremap.c
