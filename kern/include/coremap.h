@@ -1,7 +1,6 @@
 #ifndef _COREMAP_H_
 #define _COREMAP_H_
 
-
 /* funzione di inizializzazione */
 void coremap_bootstrap(void);
 /* funzione per allocare frame al kernel */

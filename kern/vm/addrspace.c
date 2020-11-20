@@ -30,10 +30,14 @@
 #include <types.h>
 #include <kern/errno.h>
 #include <lib.h>
+#include <spl.h>
+#include <mips/tlb.h>
 #include <addrspace.h>
 #include <vm.h>
 #include <proc.h>
+#include <coremap.h>
 
+#define SMARTVM_STACKPAGES    18
 /*
  * Note! If OPT_DUMBVM is set, as is the case until you start the VM
  * assignment, this file is not compiled or linked or in any way
@@ -49,7 +53,14 @@ as_create(void)
 	if (as == NULL) {
 		return NULL;
 	}
-
+	as->page_table = pt_init();
+	if (as->page_table == NULL) {
+		panic("smartvm: can't initialize page table.");
+	}
+	as->as_vbase1 = 0;
+	as->as_npages1 = 0;
+	as->as_vbase2 = 0;
+	as->as_npages2 = 0;
 	/*
 	 * Initialize as needed.
 	 */
@@ -90,20 +101,22 @@ as_destroy(struct addrspace *as)
 void
 as_activate(void)
 {
+	int i, spl;
 	struct addrspace *as;
 
 	as = proc_getas();
 	if (as == NULL) {
-		/*
-		 * Kernel thread without an address space; leave the
-		 * prior address space in place.
-		 */
 		return;
 	}
 
-	/*
-	 * Write this.
-	 */
+	/* Disable interrupts on this CPU while frobbing the TLB. */
+	spl = splhigh();
+
+	for (i=0; i<NUM_TLB; i++) {
+		tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
+	}
+
+	splx(spl);
 }
 
 void
@@ -127,20 +140,54 @@ as_deactivate(void)
  * want to implement them.
  */
 int
-as_define_region(struct addrspace *as, vaddr_t vaddr, size_t memsize,
+as_define_region(struct addrspace *as, vaddr_t vaddr, size_t sz,
 		 int readable, int writeable, int executable)
 {
 	/*
 	 * Write this.
 	 */
+	size_t npages;
 
-	(void)as;
-	(void)vaddr;
-	(void)memsize;
+	//dumbvm_can_sleep();
+
+	/* Align the region. First, the base... */
+	sz += vaddr & ~(vaddr_t)PAGE_FRAME;
+	vaddr &= PAGE_FRAME;
+
+	/* ...and now the length. */
+	sz = (sz + PAGE_SIZE - 1) & PAGE_FRAME;
+
+	npages = sz / PAGE_SIZE;
+
+	/* We don't use these - all pages are read-write */
 	(void)readable;
 	(void)writeable;
 	(void)executable;
+
+	if (as->as_vbase1 == 0) {
+		as->as_vbase1 = vaddr;
+		as->as_npages1 = npages;
+		return 0;
+	}
+
+	if (as->as_vbase2 == 0) {
+		as->as_vbase2 = vaddr;
+		as->as_npages2 = npages;
+		return 0;
+	}
+
+	/*
+	 * Support for more than two regions is not available.
+	 */
+	kprintf("dumbvm: Warning: too many regions\n");
 	return ENOSYS;
+}
+
+static
+void
+as_zero_region(paddr_t paddr, unsigned npages)
+{
+	bzero((void *)PADDR_TO_KVADDR(paddr), npages * PAGE_SIZE);
 }
 
 int
@@ -149,8 +196,34 @@ as_prepare_load(struct addrspace *as)
 	/*
 	 * Write this.
 	 */
+	size_t i;
+	struct pte* pt = as->page_table;
 
-	(void)as;
+	//dumbvm_can_sleep();
+	size_t en = VADDR_TO_PTEN(as->as_vbase1);
+	KASSERT(en<PT_LENGTH);
+	for (i=0; i<as->as_npages1; i++){
+		pt[en+i].paddr = getppages(1);
+		as_zero_region(pt[en+i].paddr, 1);
+		pt[en+i].valid = 1;
+	}
+
+	en = VADDR_TO_PTEN(as->as_vbase2);
+	KASSERT(en<PT_LENGTH);
+	for (i=0; i<as->as_npages2; i++){
+		pt[en+i].paddr = getppages(1);
+		as_zero_region(pt[en+i].paddr, 1);
+		pt[en+i].valid = 1;
+	}
+	
+	en = VADDR_TO_PTEN((USERSTACK-(SMARTVM_STACKPAGES*PAGE_SIZE)));
+	KASSERT(en<PT_LENGTH);
+	for (i=0; i<SMARTVM_STACKPAGES; i++){
+		pt[en+i].paddr = getppages(1);
+		as_zero_region(pt[en+i].paddr, 1);
+		pt[en+i].valid = 1;
+	}
+
 	return 0;
 }
 

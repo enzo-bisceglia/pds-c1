@@ -18,10 +18,7 @@ static int nRamFrames = 0;
 
 static int allocTableActive = 0;
 
-int isTableActive(void);
-paddr_t getfreeppages(unsigned long npages);
-
-int isTableActive (void) {
+static int isTableActive (void) {
 	int active;
 	spinlock_acquire(&freemem_lock);
 	active = allocTableActive;
@@ -52,6 +49,7 @@ coremap_bootstrap(void) {
 
 }
 
+static
 paddr_t 
 getfreeppages(unsigned long npages) {
 	paddr_t addr;

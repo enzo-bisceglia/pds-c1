@@ -1,9 +1,16 @@
 #include <types.h> //vaddr_t
 #include <kern/errno.h> //EINVAL
 #include <lib.h> //panic
+#include <spl.h>
+#include <proc.h> //proc
+#include <current.h> //curproc
+#include <mips/tlb.h>
+#include <addrspace.h>
 #include <vm.h> //ram_getsize
 
 #include <coremap.h>
+
+
 
 void
 vm_bootstrap(void) {
@@ -19,6 +26,12 @@ vm_fault(int faulttype, vaddr_t faultaddress) {
 	/*
 	 * Write this.
 	 */
+	vaddr_t vbase1, vtop1, vbase2, vtop2, stackbase, stacktop;
+	paddr_t paddr;
+	int i;
+	uint32_t ehi, elo;
+	struct addrspace *as;
+	int spl;
 
 	faultaddress &= PAGE_FRAME;
 
@@ -35,10 +48,70 @@ vm_fault(int faulttype, vaddr_t faultaddress) {
 		return EINVAL;
 	}
 
-	/*
-	 * gestisci fault
-	 * 
-	 */
+	if (curproc == NULL) {
+		/*
+		 * No process. This is probably a kernel fault early
+		 * in boot. Return EFAULT so as to panic instead of
+		 * getting into an infinite faulting loop.
+		 */
+		return EFAULT;
+	}
+
+	as = proc_getas();
+	if (as == NULL) {
+		/*
+		 * No address space set up. This is probably also a
+		 * kernel fault early in boot.
+		 */
+		return EFAULT;
+	}
+
+	KASSERT(as->as_vbase1 != 0);
+	KASSERT(as->as_npages1 != 0);
+	KASSERT(as->as_vbase2 != 0);
+	KASSERT(as->as_npages2 != 0);
+	KASSERT((as->as_vbase1 & PAGE_FRAME) == as->as_vbase1);
+	KASSERT((as->as_vbase2 & PAGE_FRAME) == as->as_vbase2);
+
+	vbase1 = as->as_vbase1;
+	vtop1 = vbase1 + as->as_npages1 * PAGE_SIZE;
+	vbase2 = as->as_vbase2;
+	vtop2 = vbase2 + as->as_npages2 * PAGE_SIZE;
+	stackbase = USERSTACK - 18/*SMARTVM_STACKPAGES*/ * PAGE_SIZE;
+	stacktop = USERSTACK;
+
+	if ((faultaddress >= vbase1 && faultaddress < vtop1)
+	|| (faultaddress >= vbase2 && faultaddress < vtop2)
+	|| (faultaddress >= stackbase && faultaddress < stacktop)){
+		struct pte* pt = as->page_table;
+		size_t en = VADDR_TO_PTEN(faultaddress);
+		KASSERT(pt[en].valid==1);
+		paddr = pt[en].paddr;	
+	}
+	else{
+		return EFAULT;
+	}
+	
+	/* make sure it's page-aligned */
+	KASSERT((paddr & PAGE_FRAME) == paddr);
+	/* Disable interrupts on this CPU while frobbing the TLB. */
+	spl = splhigh();
+
+	for (i=0; i<NUM_TLB; i++) {
+		tlb_read(&ehi, &elo, i);
+		if (elo & TLBLO_VALID) {
+			continue;
+		}
+		ehi = faultaddress;
+		elo = paddr | TLBLO_DIRTY | TLBLO_VALID;
+		DEBUG(DB_VM, "smartvm: 0x%x -> 0x%x\n", faultaddress, paddr);
+		tlb_write(ehi, elo, i);
+		splx(spl);
+		return 0;
+	}
+
+	kprintf("dumbvm: Ran out of TLB entries - cannot handle page fault\n");
+	splx(spl);
 	return EFAULT;
 }
 

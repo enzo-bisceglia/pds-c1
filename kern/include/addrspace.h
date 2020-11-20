@@ -36,7 +36,8 @@
 
 
 #include <vm.h>
-#include "opt-dumbvm.h"
+#include <pt.h>
+//#include "opt-dumbvm.h"
 struct vnode;
 
 
@@ -58,6 +59,12 @@ struct addrspace {
         paddr_t as_stackpbase;
 #else
         /* Put stuff here for your VM system */
+        struct pte* page_table;
+        vaddr_t as_vbase1; //code segment
+        size_t as_npages1;
+        vaddr_t as_vbase2; //data segment
+        size_t as_npages2;
+        //stack has its address (USERSTACK) and fixed size (SMARTVM_STACKPAGES)
 #endif
 };
 
