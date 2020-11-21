@@ -2,29 +2,29 @@
 // Created by attil on 10/11/2020.
 //
 
-#ifndef PGOS161_PAGETABLE_H
-#define PGOS161_PAGETABLE_H
+#ifndef _PAGETABLE_H_
+#define _PAGETABLE_H_
+#include "opt-pagetable.h"
+#include <types.h>
+#include <spinlock.h>
 
-struct page_table{
+typedef struct _P {
     paddr_t *p_frames;
     char *control;
     unsigned int length;
     vaddr_t base_vaddr;
+    struct spinlock pagetable_lock;
     //aggiungere struct spinlock pagetable_spinlock;
-} typedef pagetable;
+
+}pagetable;
+
 
 pagetable *pagetable_init(int length, vaddr_t vaddr_base);
 
-int pagetable_addentry(pagetable *pg,int vaddr,paddr_t paddr,char flag);
+int pagetable_addentry(pagetable *pg,vaddr_t vaddr,paddr_t paddr,char flag);
 
-int pagetable_removeaddr(pagetable *pg,vaddr_t vaddr);
+int pagetable_getpaddr(pagetable *pg,vaddr_t vaddr, paddr_t *paddr);
 
-int pagetable_getpaddr(pagetable *pg,vaddr_t vaddr);
+void  pagetable_destroy(pagetable *pg);
 
-char pagetable_getcontrolbit(pagetable *pg, vaddr_t vaddr);
-
-int pagetable_getlength(pagetable *pg);
-
-void pagetable_destroy(pagetable *pg);
-
-#endif //PGOS161_PAGETABLE_H
+#endif

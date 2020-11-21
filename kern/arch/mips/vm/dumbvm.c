@@ -36,8 +36,12 @@
 #include <proc.h>
 #include <current.h>
 #include <mips/tlb.h>
-#include <addrspace.h>
+
 #include <vm.h>
+#include <uio.h>
+#include <vnode.h>
+#include <elf.h>
+#include "PageTable.h"
 
 /*
  * Dumb MIPS-only "VM system" that is intended to only be just barely
@@ -75,6 +79,7 @@ static struct spinlock stealmem_lock = SPINLOCK_INITIALIZER;
 /* G.Cabodi - support for free/alloc */
 
 static struct spinlock freemem_lock = SPINLOCK_INITIALIZER;
+
 
 static unsigned char *freeRamFrames = NULL;
 static unsigned long *allocSize = NULL;
@@ -119,7 +124,7 @@ vm_bootstrap(void)
  * avoid the situation where syscall-layer code that works ok with
  * dumbvm starts blowing up during the VM assignment.
  */
-static void
+void
 dumbvm_can_sleep(void)
 {
 	if (CURCPU_EXISTS()) {
@@ -165,7 +170,7 @@ getfreeppages(unsigned long npages) {
   return addr;
 }
 
-static paddr_t
+paddr_t
 getppages(unsigned long npages)
 {
   paddr_t addr;
@@ -187,7 +192,7 @@ getppages(unsigned long npages)
   return addr;
 }
 
-static int 
+int 
 freeppages(paddr_t addr, unsigned long npages){
   long i, first, np=(long)npages;	
 
@@ -230,12 +235,72 @@ free_kpages(vaddr_t addr){
   }
 }
 
+
 void
 vm_tlbshootdown(const struct tlbshootdown *ts)
 {
 	(void)ts;
 	panic("dumbvm tried to do tlb shootdown?!\n");
 }
+
+static
+int
+my_load_segment(struct addrspace *as, struct vnode *v,
+                off_t offset, vaddr_t vaddr,
+                size_t memsize, size_t filesize,
+                int is_executable)
+{
+    struct iovec iov;
+    struct uio u;
+    int result;
+
+    if (filesize > memsize) {
+        kprintf("ELF: warning: segment filesize > segment memsize\n");
+        filesize = memsize;
+    }
+
+    DEBUG(DB_EXEC, "ELF: Loading %lu bytes to 0x%lx\n",
+          (unsigned long) filesize, (unsigned long) vaddr);
+
+    iov.iov_ubase = (userptr_t)vaddr;
+    iov.iov_len = memsize;		 // length of the memory space
+    u.uio_iov = &iov;
+    u.uio_iovcnt = 1;
+    u.uio_resid = filesize;          // amount to read from the file
+    u.uio_offset = offset;
+    u.uio_segflg = is_executable ? UIO_USERISPACE : UIO_USERSPACE;
+    u.uio_rw = UIO_READ;
+    u.uio_space = as;
+
+    result = VOP_READ(v, &u);
+    if (result) {
+        return result;
+    }
+
+    if (u.uio_resid != 0) {
+
+        kprintf("ELF: short read on segment - file truncated?\n");
+        return ENOEXEC;
+    }
+
+#if 0
+    {
+		size_t fillamt;
+
+		fillamt = memsize - filesize;
+		if (fillamt > 0) {
+			DEBUG(DB_EXEC, "ELF: Zero-filling %lu more bytes\n",
+			      (unsigned long) fillamt);
+			u.uio_resid += fillamt;
+			result = uiomovezeros(fillamt, &u);
+		}
+	}
+#endif
+
+    return result;
+}
+
+
 
 int
 vm_fault(int faulttype, vaddr_t faultaddress)
@@ -282,16 +347,16 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 
 	/* Assert that the address space has been set up properly. */
 	KASSERT(as->as_vbase1 != 0);
-	KASSERT(as->as_pbase1 != 0);
+	//KASSERT(as->as_pbase1 != 0);
 	KASSERT(as->as_npages1 != 0);
 	KASSERT(as->as_vbase2 != 0);
-	KASSERT(as->as_pbase2 != 0);
+	//KASSERT(as->as_pbase2 != 0);
 	KASSERT(as->as_npages2 != 0);
-	KASSERT(as->as_stackpbase != 0);
+	//KASSERT(as->as_stackpbase != 0);
 	KASSERT((as->as_vbase1 & PAGE_FRAME) == as->as_vbase1);
-	KASSERT((as->as_pbase1 & PAGE_FRAME) == as->as_pbase1);
+	//KASSERT((as->as_pbase1 & PAGE_FRAME) == as->as_pbase1);
 	KASSERT((as->as_vbase2 & PAGE_FRAME) == as->as_vbase2);
-	KASSERT((as->as_pbase2 & PAGE_FRAME) == as->as_pbase2);
+	//KASSERT((as->as_pbase2 & PAGE_FRAME) == as->as_pbase2);
 	KASSERT((as->as_stackpbase & PAGE_FRAME) == as->as_stackpbase);
 
 	vbase1 = as->as_vbase1;
@@ -299,16 +364,76 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 	vbase2 = as->as_vbase2;
 	vtop2 = vbase2 + as->as_npages2 * PAGE_SIZE;
 	stackbase = USERSTACK - DUMBVM_STACKPAGES * PAGE_SIZE;
-	stacktop = USERSTACK;
+	stacktop = USERSTACK; 
 
-	if (faultaddress >= vbase1 && faultaddress < vtop1) {
-		paddr = (faultaddress - vbase1) + as->as_pbase1;
+	paddr_t p_temp;
+	(void) p_temp;
+
+	int result = pagetable_getpaddr(as->pg,faultaddress,&p_temp); // tenta di trovare l'indirizzo in pagetable in p_temp passato per riferimento
+	if(result==1){ //trovato! l'inserisco in TLB
+		paddr = p_temp;	
+		//paddr &= PAGE_FRAME;
+	}
+	else if(result<0) // l'indirizzo passato non era nel range valido della pagetable
+		 return EFAULT;
+
+	else if (faultaddress >= vbase1 && faultaddress < vtop1) { // se vero siamo in segmento di codice
+	paddr = getppages(1);
+	paddr &= PAGE_FRAME;
+	as_zero_region(paddr, 1);
+	result = pagetable_addentry(as->pg,faultaddress,paddr,0);
+	if(result<=0) return EFAULT;
+		if(faulttype == VM_FAULT_READ){ //significa che il primo accesso in assoluto nel segmento di codice(quando si avvia il programma). Carico in pagetable
+			int address_index = (int)(faultaddress - vbase1)/PAGE_SIZE;
+			off_t offset =as -> ph1.p_offset + (off_t) address_index * PAGE_SIZE;
+			size_t to_read = PAGE_SIZE;
+			if(as->ph1.p_memsz - address_index * PAGE_SIZE < PAGE_SIZE) 
+				to_read = as->ph1.p_memsz - (address_index * PAGE_SIZE);
+			result = my_load_segment(as, as->v, offset, as->ph1.p_vaddr + address_index * PAGE_SIZE,
+				              to_read, to_read,
+				              as->ph1.p_flags & PF_X);
+			if(result<0){
+				return -1;
+				}
+		
+			return 0;
+			}
+
+		//paddr = (faultaddress - vbase1) + as->as_pbase1;
+
 	}
 	else if (faultaddress >= vbase2 && faultaddress < vtop2) {
-		paddr = (faultaddress - vbase2) + as->as_pbase2;
-	}
-	else if (faultaddress >= stackbase && faultaddress < stacktop) {
-		paddr = (faultaddress - stackbase) + as->as_stackpbase;
+		paddr = getppages(1);
+		paddr &= PAGE_FRAME;
+		as_zero_region(paddr, 1);
+
+		result=pagetable_addentry(as->pg,faultaddress,paddr,0); //aggiustare flag pagetable
+		if(result<=0) return EFAULT;
+		if(faulttype == VM_FAULT_READ){//significa che il primo accesso in assoluto nel segmento di dati(quando si avvia il programma). Carico in pagetable. Un volta in pagetable tutto il segmento non potrò mai più trovarmi qui.
+			int address_index = (int)(faultaddress - vbase2)/PAGE_SIZE;
+			off_t offset =as -> ph2.p_offset +  (off_t) address_index * PAGE_SIZE;
+			size_t to_read = PAGE_SIZE;
+			if(as->ph2.p_memsz - address_index * PAGE_SIZE < PAGE_SIZE) 
+				to_read = as->ph2.p_memsz - (address_index * PAGE_SIZE);
+			result = my_load_segment(as, as->v, offset, as ->ph2.p_vaddr+address_index * PAGE_SIZE,
+				              to_read, to_read,
+				              as->ph2.p_flags & PF_X);
+			if(result<0){
+				return -1;
+				}
+			return 0;
+			}
+
+		//paddr = (faultaddress - vbase2) + as->as_pbase2;
+		}
+
+
+	else if (faultaddress >= stackbase && faultaddress < stacktop) {//se falso tutto quello di prima sono in stack
+		paddr = getppages(1);
+		paddr &= PAGE_FRAME;
+		as_zero_region(paddr, 1);
+		result=pagetable_addentry(as->pg,faultaddress,paddr,0);
+		//paddr = (faultaddress - stackbase) + as->as_stackpbase;
 	}
 	else {
 		return EFAULT;
@@ -338,564 +463,9 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 	return EFAULT;
 }
 
-struct addrspace *
-as_create(void)
-{
-	struct addrspace *as = kmalloc(sizeof(struct addrspace));
-	if (as==NULL) {
-		return NULL;
-	}
 
-	as->as_vbase1 = 0;
-	as->as_pbase1 = 0;
-	as->as_npages1 = 0;
-	as->as_vbase2 = 0;
-	as->as_pbase2 = 0;
-	as->as_npages2 = 0;
-	as->as_stackpbase = 0;
 
-	return as;
-}
 
-void as_destroy(struct addrspace *as){
-  dumbvm_can_sleep();
-  freeppages(as->as_pbase1, as->as_npages1);
-  freeppages(as->as_pbase2, as->as_npages2);
-  freeppages(as->as_stackpbase, DUMBVM_STACKPAGES);
-  kfree(as);
-}
 
-void
-as_activate(void)
-{
-	int i, spl;
-	struct addrspace *as;
-
-	as = proc_getas();
-	if (as == NULL) {
-		return;
-	}
-
-	/* Disable interrupts on this CPU while frobbing the TLB. */
-	spl = splhigh();
-
-	for (i=0; i<NUM_TLB; i++) {
-		tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
-	}
-
-	splx(spl);
-}
-
-void
-as_deactivate(void)
-{
-	/* nothing */
-}
-
-int
-as_define_region(struct addrspace *as, vaddr_t vaddr, size_t sz,
-		 int readable, int writeable, int executable)
-{
-	size_t npages;
-
-	dumbvm_can_sleep();
-
-	/* Align the region. First, the base... */
-	sz += vaddr & ~(vaddr_t)PAGE_FRAME;
-	vaddr &= PAGE_FRAME;
-
-	/* ...and now the length. */
-	sz = (sz + PAGE_SIZE - 1) & PAGE_FRAME;
-
-	npages = sz / PAGE_SIZE;
-
-	/* We don't use these - all pages are read-write */
-	(void)readable;
-	(void)writeable;
-	(void)executable;
-
-	if (as->as_vbase1 == 0) {
-		as->as_vbase1 = vaddr;
-		as->as_npages1 = npages;
-		return 0;
-	}
-
-	if (as->as_vbase2 == 0) {
-		as->as_vbase2 = vaddr;
-		as->as_npages2 = npages;
-		return 0;
-	}
-
-	/*
-	 * Support for more than two regions is not available.
-	 */
-	kprintf("dumbvm: Warning: too many regions\n");
-	return ENOSYS;
-}
-
-static
-void
-as_zero_region(paddr_t paddr, unsigned npages)
-{
-	bzero((void *)PADDR_TO_KVADDR(paddr), npages * PAGE_SIZE);
-}
-
-int
-as_prepare_load(struct addrspace *as)
-{
-	KASSERT(as->as_pbase1 == 0);
-	KASSERT(as->as_pbase2 == 0);
-	KASSERT(as->as_stackpbase == 0);
-
-	dumbvm_can_sleep();
-
-	as->as_pbase1 = getppages(as->as_npages1);
-	if (as->as_pbase1 == 0) {
-		return ENOMEM;
-	}
-
-	as->as_pbase2 = getppages(as->as_npages2);
-	if (as->as_pbase2 == 0) {
-		return ENOMEM;
-	}
-
-	as->as_stackpbase = getppages(DUMBVM_STACKPAGES);
-	if (as->as_stackpbase == 0) {
-		return ENOMEM;
-	}
-
-	as_zero_region(as->as_pbase1, as->as_npages1);
-	as_zero_region(as->as_pbase2, as->as_npages2);
-	as_zero_region(as->as_stackpbase, DUMBVM_STACKPAGES);
-
-	return 0;
-}
-
-int
-as_complete_load(struct addrspace *as)
-{
-	dumbvm_can_sleep();
-	(void)as;
-	return 0;
-}
-
-int
-as_define_stack(struct addrspace *as, vaddr_t *stackptr)
-{
-	KASSERT(as->as_stackpbase != 0);
-
-	*stackptr = USERSTACK;
-	return 0;
-}
-
-int
-as_copy(struct addrspace *old, struct addrspace **ret)
-{
-	struct addrspace *new;
-
-	dumbvm_can_sleep();
-
-	new = as_create();
-	if (new==NULL) {
-		return ENOMEM;
-	}
-
-	new->as_vbase1 = old->as_vbase1;
-	new->as_npages1 = old->as_npages1;
-	new->as_vbase2 = old->as_vbase2;
-	new->as_npages2 = old->as_npages2;
-
-	/* (Mis)use as_prepare_load to allocate some physical memory. */
-	if (as_prepare_load(new)) {
-		as_destroy(new);
-		return ENOMEM;
-	}
-
-	KASSERT(new->as_pbase1 != 0);
-	KASSERT(new->as_pbase2 != 0);
-	KASSERT(new->as_stackpbase != 0);
-
-	memmove((void *)PADDR_TO_KVADDR(new->as_pbase1),
-		(const void *)PADDR_TO_KVADDR(old->as_pbase1),
-		old->as_npages1*PAGE_SIZE);
-
-	memmove((void *)PADDR_TO_KVADDR(new->as_pbase2),
-		(const void *)PADDR_TO_KVADDR(old->as_pbase2),
-		old->as_npages2*PAGE_SIZE);
-
-	memmove((void *)PADDR_TO_KVADDR(new->as_stackpbase),
-		(const void *)PADDR_TO_KVADDR(old->as_stackpbase),
-		DUMBVM_STACKPAGES*PAGE_SIZE);
-
-	*ret = new;
-	return 0;
-}
-
-
-#else
-
-/* G.Cabodi - original dumbvm */
-
-void
-vm_bootstrap(void)
-{
-	/* Do nothing. */
-}
-
-/*
- * Check if we're in a context that can sleep. While most of the
- * operations in dumbvm don't in fact sleep, in a real VM system many
- * of them would. In those, assert that sleeping is ok. This helps
- * avoid the situation where syscall-layer code that works ok with
- * dumbvm starts blowing up during the VM assignment.
- */
-static
-void
-dumbvm_can_sleep(void)
-{
-	if (CURCPU_EXISTS()) {
-		/* must not hold spinlocks */
-		KASSERT(curcpu->c_spinlocks == 0);
-
-		/* must not be in an interrupt handler */
-		KASSERT(curthread->t_in_interrupt == 0);
-	}
-}
-
-static
-paddr_t
-getppages(unsigned long npages)
-{
-	paddr_t addr;
-
-	spinlock_acquire(&stealmem_lock);
-
-	addr = ram_stealmem(npages);
-
-	spinlock_release(&stealmem_lock);
-	return addr;
-}
-
-/* Allocate/free some kernel-space virtual pages */
-vaddr_t
-alloc_kpages(unsigned npages)
-{
-	paddr_t pa;
-
-	dumbvm_can_sleep();
-	pa = getppages(npages);
-	if (pa==0) {
-		return 0;
-	}
-	return PADDR_TO_KVADDR(pa);
-}
-
-void
-free_kpages(vaddr_t addr)
-{
-	/* nothing - leak the memory. */
-
-	(void)addr;
-}
-
-void
-vm_tlbshootdown(const struct tlbshootdown *ts)
-{
-	(void)ts;
-	panic("dumbvm tried to do tlb shootdown?!\n");
-}
-
-int
-vm_fault(int faulttype, vaddr_t faultaddress)
-{
-	vaddr_t vbase1, vtop1, vbase2, vtop2, stackbase, stacktop;
-	paddr_t paddr;
-	int i;
-	uint32_t ehi, elo;
-	struct addrspace *as;
-	int spl;
-
-	faultaddress &= PAGE_FRAME;
-
-	DEBUG(DB_VM, "dumbvm: fault: 0x%x\n", faultaddress);
-
-	switch (faulttype) {
-	    case VM_FAULT_READONLY:
-		/* We always create pages read-write, so we can't get this */
-		panic("dumbvm: got VM_FAULT_READONLY\n");
-	    case VM_FAULT_READ:
-	    case VM_FAULT_WRITE:
-		break;
-	    default:
-		return EINVAL;
-	}
-
-	if (curproc == NULL) {
-		/*
-		 * No process. This is probably a kernel fault early
-		 * in boot. Return EFAULT so as to panic instead of
-		 * getting into an infinite faulting loop.
-		 */
-		return EFAULT;
-	}
-
-	as = proc_getas();
-	if (as == NULL) {
-		/*
-		 * No address space set up. This is probably also a
-		 * kernel fault early in boot.
-		 */
-		return EFAULT;
-	}
-
-	/* Assert that the address space has been set up properly. */
-	KASSERT(as->as_vbase1 != 0);
-	KASSERT(as->as_pbase1 != 0);
-	KASSERT(as->as_npages1 != 0);
-	KASSERT(as->as_vbase2 != 0);
-	KASSERT(as->as_pbase2 != 0);
-	KASSERT(as->as_npages2 != 0);
-	KASSERT(as->as_stackpbase != 0);
-	KASSERT((as->as_vbase1 & PAGE_FRAME) == as->as_vbase1);
-	KASSERT((as->as_pbase1 & PAGE_FRAME) == as->as_pbase1);
-	KASSERT((as->as_vbase2 & PAGE_FRAME) == as->as_vbase2);
-	KASSERT((as->as_pbase2 & PAGE_FRAME) == as->as_pbase2);
-	KASSERT((as->as_stackpbase & PAGE_FRAME) == as->as_stackpbase);
-
-	vbase1 = as->as_vbase1;
-	vtop1 = vbase1 + as->as_npages1 * PAGE_SIZE;
-	vbase2 = as->as_vbase2;
-	vtop2 = vbase2 + as->as_npages2 * PAGE_SIZE;
-	stackbase = USERSTACK - DUMBVM_STACKPAGES * PAGE_SIZE;
-	stacktop = USERSTACK;
-
-	if (faultaddress >= vbase1 && faultaddress < vtop1) {
-		paddr = (faultaddress - vbase1) + as->as_pbase1;
-	}
-	else if (faultaddress >= vbase2 && faultaddress < vtop2) {
-		paddr = (faultaddress - vbase2) + as->as_pbase2;
-	}
-	else if (faultaddress >= stackbase && faultaddress < stacktop) {
-		paddr = (faultaddress - stackbase) + as->as_stackpbase;
-	}
-	else {
-		return EFAULT;
-	}
-
-	/* make sure it's page-aligned */
-	KASSERT((paddr & PAGE_FRAME) == paddr);
-
-	/* Disable interrupts on this CPU while frobbing the TLB. */
-	spl = splhigh();
-
-	for (i=0; i<NUM_TLB; i++) {
-		tlb_read(&ehi, &elo, i);
-		if (elo & TLBLO_VALID) {
-			continue;
-		}
-		ehi = faultaddress;
-		elo = paddr | TLBLO_DIRTY | TLBLO_VALID;
-		DEBUG(DB_VM, "dumbvm: 0x%x -> 0x%x\n", faultaddress, paddr);
-		tlb_write(ehi, elo, i);
-		splx(spl);
-		return 0;
-	}
-
-	kprintf("dumbvm: Ran out of TLB entries - cannot handle page fault\n");
-	splx(spl);
-	return EFAULT;
-}
-
-struct addrspace *
-as_create(void)
-{
-	struct addrspace *as = kmalloc(sizeof(struct addrspace));
-	if (as==NULL) {
-		return NULL;
-	}
-
-	as->as_vbase1 = 0;
-	as->as_pbase1 = 0;
-	as->as_npages1 = 0;
-	as->as_vbase2 = 0;
-	as->as_pbase2 = 0;
-	as->as_npages2 = 0;
-	as->as_stackpbase = 0;
-
-	return as;
-}
-
-void
-as_destroy(struct addrspace *as)
-{
-	dumbvm_can_sleep();
-	kfree(as);
-}
-
-void
-as_activate(void)
-{
-	int i, spl;
-	struct addrspace *as;
-
-	as = proc_getas();
-	if (as == NULL) {
-		return;
-	}
-
-	/* Disable interrupts on this CPU while frobbing the TLB. */
-	spl = splhigh();
-
-	for (i=0; i<NUM_TLB; i++) {
-		tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
-	}
-
-	splx(spl);
-}
-
-void
-as_deactivate(void)
-{
-	/* nothing */
-}
-
-int
-as_define_region(struct addrspace *as, vaddr_t vaddr, size_t sz,
-		 int readable, int writeable, int executable)
-{
-	size_t npages;
-
-	dumbvm_can_sleep();
-
-	/* Align the region. First, the base... */
-	sz += vaddr & ~(vaddr_t)PAGE_FRAME;
-	vaddr &= PAGE_FRAME;
-
-	/* ...and now the length. */
-	sz = (sz + PAGE_SIZE - 1) & PAGE_FRAME;
-
-	npages = sz / PAGE_SIZE;
-
-	/* We don't use these - all pages are read-write */
-	(void)readable;
-	(void)writeable;
-	(void)executable;
-
-	if (as->as_vbase1 == 0) {
-		as->as_vbase1 = vaddr;
-		as->as_npages1 = npages;
-		return 0;
-	}
-
-	if (as->as_vbase2 == 0) {
-		as->as_vbase2 = vaddr;
-		as->as_npages2 = npages;
-		return 0;
-	}
-
-	/*
-	 * Support for more than two regions is not available.
-	 */
-	kprintf("dumbvm: Warning: too many regions\n");
-	return ENOSYS;
-}
-
-static
-void
-as_zero_region(paddr_t paddr, unsigned npages)
-{
-	bzero((void *)PADDR_TO_KVADDR(paddr), npages * PAGE_SIZE);
-}
-
-int
-as_prepare_load(struct addrspace *as)
-{
-	KASSERT(as->as_pbase1 == 0);
-	KASSERT(as->as_pbase2 == 0);
-	KASSERT(as->as_stackpbase == 0);
-
-	dumbvm_can_sleep();
-
-	as->as_pbase1 = getppages(as->as_npages1);
-	if (as->as_pbase1 == 0) {
-		return ENOMEM;
-	}
-
-	as->as_pbase2 = getppages(as->as_npages2);
-	if (as->as_pbase2 == 0) {
-		return ENOMEM;
-	}
-
-	as->as_stackpbase = getppages(DUMBVM_STACKPAGES);
-	if (as->as_stackpbase == 0) {
-		return ENOMEM;
-	}
-
-	as_zero_region(as->as_pbase1, as->as_npages1);
-	as_zero_region(as->as_pbase2, as->as_npages2);
-	as_zero_region(as->as_stackpbase, DUMBVM_STACKPAGES);
-
-	return 0;
-}
-
-int
-as_complete_load(struct addrspace *as)
-{
-	dumbvm_can_sleep();
-	(void)as;
-	return 0;
-}
-
-int
-as_define_stack(struct addrspace *as, vaddr_t *stackptr)
-{
-	KASSERT(as->as_stackpbase != 0);
-
-	*stackptr = USERSTACK;
-	return 0;
-}
-
-int
-as_copy(struct addrspace *old, struct addrspace **ret)
-{
-	struct addrspace *new;
-
-	dumbvm_can_sleep();
-
-	new = as_create();
-	if (new==NULL) {
-		return ENOMEM;
-	}
-
-	new->as_vbase1 = old->as_vbase1;
-	new->as_npages1 = old->as_npages1;
-	new->as_vbase2 = old->as_vbase2;
-	new->as_npages2 = old->as_npages2;
-
-	/* (Mis)use as_prepare_load to allocate some physical memory. */
-	if (as_prepare_load(new)) {
-		as_destroy(new);
-		return ENOMEM;
-	}
-
-	KASSERT(new->as_pbase1 != 0);
-	KASSERT(new->as_pbase2 != 0);
-	KASSERT(new->as_stackpbase != 0);
-
-	memmove((void *)PADDR_TO_KVADDR(new->as_pbase1),
-		(const void *)PADDR_TO_KVADDR(old->as_pbase1),
-		old->as_npages1*PAGE_SIZE);
-
-	memmove((void *)PADDR_TO_KVADDR(new->as_pbase2),
-		(const void *)PADDR_TO_KVADDR(old->as_pbase2),
-		old->as_npages2*PAGE_SIZE);
-
-	memmove((void *)PADDR_TO_KVADDR(new->as_stackpbase),
-		(const void *)PADDR_TO_KVADDR(old->as_stackpbase),
-		DUMBVM_STACKPAGES*PAGE_SIZE);
-
-	*ret = new;
-	return 0;
-}
 
 #endif

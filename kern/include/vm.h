@@ -36,7 +36,7 @@
  * You'll probably want to add stuff here.
  */
 
-
+#include <addrspace.h>
 #include <machine/vm.h>
 
 /* Fault-type arguments to vm_fault() */
@@ -44,7 +44,7 @@
 #define VM_FAULT_WRITE       1    /* A write was attempted */
 #define VM_FAULT_READONLY    2    /* A write to a readonly page was attempted*/
 
-
+#define DUMBVM_STACKPAGES    18
 /* Initialization function */
 void vm_bootstrap(void);
 
@@ -58,5 +58,12 @@ void free_kpages(vaddr_t addr);
 /* TLB shootdown handling called from interprocessor_interrupt */
 void vm_tlbshootdown(const struct tlbshootdown *);
 
+void dumbvm_can_sleep(void);
+
+int 
+freeppages(paddr_t addr, unsigned long npages);
+
+paddr_t
+getppages(unsigned long npages);
 
 #endif /* _VM_H_ */

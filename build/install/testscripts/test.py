@@ -1,4 +1,4 @@
-#!/usr/bin/env
+#!/usr/bin/env python2.7
 # test.py - run some test material
 # usage: auto/test.py [options] test-commands
 # options:

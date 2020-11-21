@@ -383,13 +383,6 @@ file      syscall/time_syscalls.c
 
 file      main/main.c
 file      main/menu.c
-########################################
-#                                      #
-#              HELLOOOOO               #
-#                                      #
-########################################
-defoption hello
-optfile	  hello	main/hello.c
 
 ########################################
 #                                      #
@@ -428,6 +421,7 @@ defoption netfs
 # Note that "emufs" is completely contained in the "emu" device.
 #
 
+
 ########################################
 #                                      #
 #              Test code               #
@@ -446,5 +440,8 @@ file		test/fstest.c
 optfile net	test/nettest.c
 
 defoption syscalls
-optfile syscalls syscall/proc_syscalls.c
-optfile syscalls syscall/file_syscalls.c
+file		syscall/proc_syscalls.c
+file		syscall/file_syscalls.c
+defoption pagetable
+file		vm/PageTable.c
+file		vm/addrspace.c
