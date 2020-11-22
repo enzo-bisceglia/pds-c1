@@ -54,6 +54,68 @@
  */
 struct proc *kproc;
 
+
+
+#define MAX_PROC 100
+static struct _processTable {
+  int active;           /* initial value 0 */
+  struct proc *proc[MAX_PROC+1]; /* [0] not used. pids are >= 1 */
+  int proc_count;          /* index of last allocated pid */
+  struct spinlock lk;	/* Lock for this table */
+} processTable;
+
+static pid_t proc_get_pid(struct proc* p){
+   if(processTable.proc_count>=MAX_PROC+1) return -2;
+   int i;
+   if(!processTable.active) return -1;
+   spinlock_acquire(&processTable.lk);
+   for(i=0;i<MAX_PROC+1;i++){
+	if(processTable.proc[i]==NULL){
+		processTable.proc[i] = p;
+		processTable.proc_count+=1;	
+		spinlock_release(&processTable.lk);
+		return (pid_t) i;	
+		}
+	}
+   spinlock_release(&processTable.lk);
+   return 1;
+}
+
+static int proc_remove_pid(struct proc* p){
+   if(p==NULL) return -2;
+   KASSERT(p->pid>0 && p->pid<= MAX_PROC+1);
+   int i = (int) p->pid;
+   if(!processTable.active) return -1;
+   spinlock_acquire(&processTable.lk);
+   if(p != processTable.proc[i]){
+	   spinlock_release(&processTable.lk);
+	   return 0;
+	}
+   processTable.proc[i]=NULL;
+   processTable.proc_count-=1;
+   spinlock_release(&processTable.lk);
+   return 1;
+
+}
+
+pid_t proc_search_pid(struct proc* p){
+   if(p==NULL) return -2;
+   if(!processTable.active) return -1;
+   int i;
+   spinlock_acquire(&processTable.lk);
+   for(i=1;i<MAX_PROC+1;i++){
+	if(processTable.proc[i] == p){	
+		spinlock_release(&processTable.lk);
+		return (pid_t) i;	
+		}
+	}
+   spinlock_release(&processTable.lk);
+   return 0;
+
+}
+
+
+
 /*
  * Create a proc structure.
  */
@@ -81,6 +143,12 @@ proc_create(const char *name)
 
 	/* VFS fields */
 	proc->p_cwd = NULL;
+
+	proc->pid = proc_get_pid(proc);
+	if(proc->pid<0) {
+		kfree(proc);
+		return NULL;
+	}
 
 	return proc;
 }
@@ -166,6 +234,7 @@ proc_destroy(struct proc *proc)
 	}
 
 	KASSERT(proc->p_numthreads == 0);
+	KASSERT(proc_remove_pid(proc));
 	spinlock_cleanup(&proc->p_lock);
 
 	kfree(proc->p_name);
@@ -178,10 +247,21 @@ proc_destroy(struct proc *proc)
 void
 proc_bootstrap(void)
 {
+	spinlock_init(&processTable.lk);
+	/* kernel process is not registered in the table */
+	processTable.active = 1;
+	processTable.proc_count=0;
+	int i;
+	spinlock_acquire(&processTable.lk);
+   	for(i=0;i<MAX_PROC+1;i++){
+        	processTable.proc[i]=NULL;
+	}
+   	spinlock_release(&processTable.lk);
 	kproc = proc_create("[kernel]");
 	if (kproc == NULL) {
 		panic("proc_create for kproc failed\n");
 	}
+
 }
 
 /*
