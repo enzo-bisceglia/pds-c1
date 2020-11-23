@@ -57,7 +57,7 @@ as_create(void)
 
 void as_destroy(struct addrspace *as){
   dumbvm_can_sleep();
-  pagetable_destroy(as->pg);
+  pagetable_remove_entries(curproc->pid);
   vfs_close(as->v);
   kfree(as);
 }
@@ -139,13 +139,11 @@ as_prepare_load(struct addrspace *as)
 {
 
 
-	dumbvm_can_sleep();
+
 
 	#if OPT_PAGETABLE
-	as->pg = pagetable_init((int)VADDR_SIZE, as -> as_vbase1);
-	if(as -> pg == NULL ) 
-		return ENOMEM;
-
+	(void) as;
+	dumbvm_can_sleep();
 
 	#else
 
@@ -187,7 +185,7 @@ as_complete_load(struct addrspace *as)
 int
 as_define_stack(struct addrspace *as, vaddr_t *stackptr)
 {
-	KASSERT(as->as_stackpbase != NULL);
+	KASSERT(as->pg != NULL);
 
 	*stackptr = USERSTACK;
 	return 0;

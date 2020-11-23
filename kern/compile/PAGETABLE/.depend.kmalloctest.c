@@ -8,4 +8,5 @@ kmalloctest.o: ../../test/kmalloctest.c ../../include/types.h \
  includelinks/kern/machine/setjmp.h ../../include/synch.h \
  ../../include/vm.h ../../include/addrspace.h opt-dumbvm.h \
  ../../include/elf.h includelinks/machine/elf.h ../../include/PageTable.h \
- opt-pagetable.h includelinks/machine/vm.h ../../include/test.h
+ opt-pagetable.h ../../include/current.h includelinks/machine/current.h \
+ includelinks/machine/vm.h ../../include/test.h

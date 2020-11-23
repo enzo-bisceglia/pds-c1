@@ -39,6 +39,8 @@
 #include "opt-dumbvm.h"
 #include <elf.h>
 #include <PageTable.h>
+#include <types.h>
+#include <current.h>
 
 
 /*
@@ -67,7 +69,6 @@ struct addrspace {
         /* Put stuff here for your VM system */
 
 
-	pagetable *pg;
 #endif
 };
 

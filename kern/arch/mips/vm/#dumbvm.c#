@@ -36,11 +36,12 @@
 #include <proc.h>
 #include <current.h>
 #include <mips/tlb.h>
-#include <addrspace.h>
+
 #include <vm.h>
 #include <uio.h>
 #include <vnode.h>
 #include <elf.h>
+#include "PageTable.h"
 
 /*
  * Dumb MIPS-only "VM system" that is intended to only be just barely
@@ -79,9 +80,11 @@ static struct spinlock stealmem_lock = SPINLOCK_INITIALIZER;
 
 static struct spinlock freemem_lock = SPINLOCK_INITIALIZER;
 
+
 static unsigned char *freeRamFrames = NULL;
 static unsigned long *allocSize = NULL;
 static int nRamFrames = 0;
+
 
 static int allocTableActive = 0;
 
@@ -110,9 +113,16 @@ vm_bootstrap(void)
     freeRamFrames[i] = (unsigned char)0;
     allocSize[i]     = 0;  
   }
+
   spinlock_acquire(&freemem_lock);
   allocTableActive = 1;
   spinlock_release(&freemem_lock);
+
+  if(!pagetable_init(((int)ram_getsize())/PAGE_SIZE)){
+	panic("Page table allocation fails\n");
+  }
+
+
 }
 
 /*
@@ -122,7 +132,7 @@ vm_bootstrap(void)
  * avoid the situation where syscall-layer code that works ok with
  * dumbvm starts blowing up during the VM assignment.
  */
-static void
+void
 dumbvm_can_sleep(void)
 {
 	if (CURCPU_EXISTS()) {
@@ -168,7 +178,7 @@ getfreeppages(unsigned long npages) {
   return addr;
 }
 
-static paddr_t
+paddr_t
 getppages(unsigned long npages)
 {
   paddr_t addr;
@@ -190,7 +200,7 @@ getppages(unsigned long npages)
   return addr;
 }
 
-static int 
+int 
 freeppages(paddr_t addr, unsigned long npages){
   long i, first, np=(long)npages;	
 
@@ -233,6 +243,7 @@ free_kpages(vaddr_t addr){
   }
 }
 
+
 void
 vm_tlbshootdown(const struct tlbshootdown *ts)
 {
@@ -243,7 +254,7 @@ vm_tlbshootdown(const struct tlbshootdown *ts)
 static
 int
 my_load_segment(struct addrspace *as, struct vnode *v,
-                off_t offset, paddr_t vaddr,
+                off_t offset, vaddr_t vaddr,
                 size_t memsize, size_t filesize,
                 int is_executable)
 {
@@ -275,26 +286,12 @@ my_load_segment(struct addrspace *as, struct vnode *v,
     }
 
     if (u.uio_resid != 0) {
-        /* short read; problem with executable? */
+
         kprintf("ELF: short read on segment - file truncated?\n");
         return ENOEXEC;
     }
 
-    /*
-     * If memsize > filesize, the remaining space should be
-     * zero-filled. There is no need to do this explicitly,
-     * because the VM system should provide pages that do not
-     * contain other processes' data, i.e., are already zeroed.
-     *
-     * During development of your VM system, it may have bugs that
-     * cause it to (maybe only sometimes) not provide zero-filled
-     * pages, which can cause user programs to fail in strange
-     * ways. Explicitly zeroing program BSS may help identify such
-     * bugs, so the following disabled code is provided as a
-     * diagnostic tool. Note that it must be disabled again before
-     * you submit your code for grading.
-     */
-#if 1
+#if 0
     {
 		size_t fillamt;
 
@@ -311,25 +308,8 @@ my_load_segment(struct addrspace *as, struct vnode *v,
     return result;
 }
 
-static int 
-get_ph_info(int i, Elf_Ehdr eh,Elf_Phdr *ph, struct vnode* v){
-	struct iovec iov;
-	struct uio ku;
-	off_t offset = eh.e_phoff + i*eh.e_phentsize;
-	uio_kinit(&iov, &ku, ph, sizeof(ph), offset, UIO_READ);
 
-	int result = VOP_READ(v, &ku);
-	if (result) {
-		return result;
-	}
-
-	if (ku.uio_resid != 0) {
-		/* short read; problem with executable? */
-		kprintf("ELF: short read on phdr - file truncated?\n");
-		return ENOEXEC;
-	}
-	return 0;
-}
+#define TO_TLB_FLAG(p) (p &= (TLBLO_VALID | TLBLO_DIRTY))
 
 int
 vm_fault(int faulttype, vaddr_t faultaddress)
@@ -340,7 +320,7 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 	uint32_t ehi, elo;
 	struct addrspace *as;
 	int spl;
-	Elf_Phdr ph; 
+
 	faultaddress &= PAGE_FRAME;
 
 	DEBUG(DB_VM, "dumbvm: fault: 0x%x\n", faultaddress);
@@ -376,16 +356,16 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 
 	/* Assert that the address space has been set up properly. */
 	KASSERT(as->as_vbase1 != 0);
-	KASSERT(as->as_pbase1 != 0);
+	//KASSERT(as->as_pbase1 != 0);
 	KASSERT(as->as_npages1 != 0);
 	KASSERT(as->as_vbase2 != 0);
-	KASSERT(as->as_pbase2 != 0);
+	//KASSERT(as->as_pbase2 != 0);
 	KASSERT(as->as_npages2 != 0);
-	KASSERT(as->as_stackpbase != 0);
+	//KASSERT(as->as_stackpbase != 0);
 	KASSERT((as->as_vbase1 & PAGE_FRAME) == as->as_vbase1);
-	KASSERT((as->as_pbase1 & PAGE_FRAME) == as->as_pbase1);
+	//KASSERT((as->as_pbase1 & PAGE_FRAME) == as->as_pbase1);
 	KASSERT((as->as_vbase2 & PAGE_FRAME) == as->as_vbase2);
-	KASSERT((as->as_pbase2 & PAGE_FRAME) == as->as_pbase2);
+	//KASSERT((as->as_pbase2 & PAGE_FRAME) == as->as_pbase2);
 	KASSERT((as->as_stackpbase & PAGE_FRAME) == as->as_stackpbase);
 
 	vbase1 = as->as_vbase1;
@@ -393,64 +373,106 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 	vbase2 = as->as_vbase2;
 	vtop2 = vbase2 + as->as_npages2 * PAGE_SIZE;
 	stackbase = USERSTACK - DUMBVM_STACKPAGES * PAGE_SIZE;
-	stacktop = USERSTACK;
-	paddr_t temp_p;
+	stacktop = USERSTACK; 
 
-	if (faultaddress >= vbase1 && faultaddress < vtop1) {
-		int result = get_ph_info(0, as->eh,&ph,as -> v);
+	paddr_t p_temp;
+	pid_t pid = curproc -> pid;
+	char flag=0x0;
+	(void) p_temp;
 
-		paddr = getppages(1);
+	int result = pagetable_getpaddr(faultaddress,&p_temp,&pid,&flag); // tenta di trovare l'indirizzo in pagetable in p_temp passato per riferimento
+	if(result==1){ //trovato! l'inserisco in TLB
+		paddr = p_temp;	
+		//paddr &= PAGE_FRAME;
+	}
+	else if(result<0) // l'indirizzo passato non era nel range valido della pagetable
+		 return EFAULT;
 
-		off_t offset =(off_t) (int)(faultaddress - vbase1)/PAGE_SIZE ;
-		result = my_load_segment(as, as->v, offset, paddr,
-		                      ph.p_memsz, PAGE_SIZE,
-		                      ph.p_flags & PF_X);
-		if(result<0){
-			return -1;
+	else if (faultaddress >= vbase1 && faultaddress < vtop1) { // se vero siamo in segmento di codice
+	paddr = getppages(1);
+	paddr &= PAGE_FRAME;
+	as_zero_region(paddr, 1);
+	flag |= (TLBLO_VALID >> 9);
+	result = pagetable_addentry(faultaddress,paddr,pid,flag);
+	if(result<=0) return EFAULT;
+		if(faulttype == VM_FAULT_READ){ //significa che il primo accesso in assoluto nel segmento di codice(quando si avvia il programma). Carico in pagetable
+			int address_index = (int)(faultaddress - vbase1)/PAGE_SIZE;
+			off_t offset =as -> ph1.p_offset + (off_t) address_index * PAGE_SIZE;
+			size_t to_read = PAGE_SIZE;
+			if(as->ph1.p_memsz - address_index * PAGE_SIZE < PAGE_SIZE) 
+				to_read = as->ph1.p_memsz - (address_index * PAGE_SIZE);
+			result = my_load_segment(as, as->v, offset, as->ph1.p_vaddr + address_index * PAGE_SIZE,
+				              to_read, to_read,
+				              as->ph1.p_flags & PF_X);
+			if(result<0){
+				return -1;
+				}
+		
+			return 0;
 			}
-		temp_p = paddr;
-		(void) temp_p;
-		paddr = (faultaddress - vbase1) + as->as_pbase1;
-		//implementare anche qui e togliere vecchia versione per vedere se funzione, 2) aggiungere syscall
+
+		//paddr = (faultaddress - vbase1) + as->as_pbase1;
+
 	}
 	else if (faultaddress >= vbase2 && faultaddress < vtop2) {
-		int result = get_ph_info(1, as->eh,&ph,as -> v);
-
 		paddr = getppages(1);
-
-		off_t offset =(off_t) (int)(faultaddress - vbase2)/PAGE_SIZE;
-		result = my_load_segment(as, as->v, offset, paddr,
-		                      ph.p_memsz, PAGE_SIZE,
-		                      ph.p_flags & PF_X);
-		if(result<0){
-			return -1;
+		paddr &= PAGE_FRAME;
+		as_zero_region(paddr, 1);
+		flag |= (TLBLO_VALID | TLBLO_DIRTY) >>9 ;
+		result = pagetable_addentry(faultaddress,paddr,pid, flag); // qui puoi scrivere
+		if(result<=0) return EFAULT;
+		if(faulttype == VM_FAULT_READ){//significa che il primo accesso in assoluto nel segmento di dati(quando si avvia il programma). Carico in pagetable. Un volta in pagetable tutto il segmento non potrò mai più trovarmi qui.
+			int address_index = (int)(faultaddress - vbase2)/PAGE_SIZE;
+			off_t offset =as -> ph2.p_offset +  (off_t) address_index * PAGE_SIZE;
+			size_t to_read = PAGE_SIZE;
+			if(as->ph2.p_memsz - address_index * PAGE_SIZE < PAGE_SIZE) 
+				to_read = as->ph2.p_memsz - (address_index * PAGE_SIZE);
+			result = my_load_segment(as, as->v, offset, as ->ph2.p_vaddr+address_index * PAGE_SIZE,
+				              to_read, to_read,
+				              as->ph2.p_flags & PF_X);
+			if(result<0){
+				return -1;
+				}
+			return 0;
 			}
-		temp_p = paddr;
-		(void) temp_p;
-		paddr = (faultaddress - vbase2) + as->as_pbase2;
 
+		//paddr = (faultaddress - vbase2) + as->as_pbase2;
 		}
-	else if (faultaddress >= stackbase && faultaddress < stacktop) {
 
-		paddr = (faultaddress - stackbase) + as->as_stackpbase;
+
+	else if (faultaddress >= stackbase && faultaddress < stacktop) {//se falso tutto quello di prima sono in stack
+		paddr = getppages(1);
+		paddr &= PAGE_FRAME;
+		as_zero_region(paddr, 1);
+		flag |= (TLBLO_VALID | TLBLO_DIRTY) >> 9;
+		result = pagetable_addentry(faultaddress,paddr,pid,flag); // qui puoi scrivere
+		//paddr = (faultaddress - stackbase) + as->as_stackpbase;
 	}
 	else {
 		return EFAULT;
 	}
 
 	/* make sure it's page-aligned */
+
 	KASSERT((paddr & PAGE_FRAME) == paddr);
+	KASSERT((flag & (TLBLO_VALID | TLBLO_DIRTY) >> 9)==flag);
+	KASSERT((pid & 0xfff) == pid); // non possono esserci PID >= 2^12;
 
 	/* Disable interrupts on this CPU while frobbing the TLB. */
 	spl = splhigh();
 
+	//flag &=  TLBLO_VALID | TLBLO_DIRTY;
+	
 	for (i=0; i<NUM_TLB; i++) {
 		tlb_read(&ehi, &elo, i);
 		if (elo & TLBLO_VALID) {
 			continue;
 		}
-		ehi = faultaddress;
-		elo = paddr | TLBLO_DIRTY | TLBLO_VALID;
+		pid = pid << 6 ;
+		ehi = faultaddress | pid;
+		int int_flag = (int) flag;
+		int_flag = int_flag << 9;
+		elo = paddr | int_flag;
 		DEBUG(DB_VM, "dumbvm: 0x%x -> 0x%x\n", faultaddress, paddr);
 		tlb_write(ehi, elo, i);
 		splx(spl);
@@ -462,201 +484,9 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 	return EFAULT;
 }
 
-struct addrspace *
-as_create(void)
-{
-	struct addrspace *as = kmalloc(sizeof(struct addrspace));
-	if (as==NULL) {
-		return NULL;
-	}
-
-	as->as_vbase1 = 0;
-	as->as_pbase1 = 0;
-	as->as_npages1 = 0;
-	as->as_vbase2 = 0;
-	as->as_pbase2 = 0;
-	as->as_npages2 = 0;
-	as->as_stackpbase = 0;
-
-	return as;
-}
-
-void as_destroy(struct addrspace *as){
-  dumbvm_can_sleep();
-  freeppages(as->as_pbase1, as->as_npages1);
-  freeppages(as->as_pbase2, as->as_npages2);
-  freeppages(as->as_stackpbase, DUMBVM_STACKPAGES);
-  kfree(as);
-}
-
-void
-as_activate(void)
-{
-	int i, spl;
-	struct addrspace *as;
-
-	as = proc_getas();
-	if (as == NULL) {
-		return;
-	}
-
-	/* Disable interrupts on this CPU while frobbing the TLB. */
-	spl = splhigh();
-
-	for (i=0; i<NUM_TLB; i++) {
-		tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
-	}
-
-	splx(spl);
-}
-
-void
-as_deactivate(void)
-{
-	/* nothing */
-}
-
-int
-as_define_region(struct addrspace *as, vaddr_t vaddr, size_t sz,
-		 int readable, int writeable, int executable)
-{
-	size_t npages;
-
-	dumbvm_can_sleep();
-
-	/* Align the region. First, the base... */
-	sz += vaddr & ~(vaddr_t)PAGE_FRAME;
-	vaddr &= PAGE_FRAME;
-
-	/* ...and now the length. */
-	sz = (sz + PAGE_SIZE - 1) & PAGE_FRAME;
-
-	npages = sz / PAGE_SIZE;
-
-	/* We don't use these - all pages are read-write */
-	(void)readable;
-	(void)writeable;
-	(void)executable;
-
-	if (as->as_vbase1 == 0) {
-		as->as_vbase1 = vaddr;
-		as->as_npages1 = npages;
-		// aggiungi valore memsize e filesize
-		return 0;
-	}
-
-	if (as->as_vbase2 == 0) {
-		as->as_vbase2 = vaddr;
-		as->as_npages2 = npages;
-		return 0;
-	}
-
-	/*
-	 * Support for more than two regions is not available.
-	 */
-	kprintf("dumbvm: Warning: too many regions\n");
-	return ENOSYS;
-}
-
-static
-void
-as_zero_region(paddr_t paddr, unsigned npages)
-{
-	bzero((void *)PADDR_TO_KVADDR(paddr), npages * PAGE_SIZE);
-}
-
-int
-as_prepare_load(struct addrspace *as)
-{
-	KASSERT(as->as_pbase1 == 0);
-	KASSERT(as->as_pbase2 == 0);
-	KASSERT(as->as_stackpbase == 0);
-
-	dumbvm_can_sleep();
-
-	as->as_pbase1 = getppages(as->as_npages1);
-	if (as->as_pbase1 == 0) {
-		return ENOMEM;
-	}
-
-	as->as_pbase2 = getppages(as->as_npages2);
-	if (as->as_pbase2 == 0) {
-		return ENOMEM;
-	}
-
-	as->as_stackpbase = getppages(DUMBVM_STACKPAGES);
-	if (as->as_stackpbase == 0) {
-		return ENOMEM;
-	}
-
-	as_zero_region(as->as_pbase1, as->as_npages1);
-	as_zero_region(as->as_pbase2, as->as_npages2);
-	as_zero_region(as->as_stackpbase, DUMBVM_STACKPAGES);
-
-	return 0;
-}
-
-int
-as_complete_load(struct addrspace *as)
-{
-	dumbvm_can_sleep();
-	(void)as;
-	return 0;
-}
-
-int
-as_define_stack(struct addrspace *as, vaddr_t *stackptr)
-{
-	KASSERT(as->as_stackpbase != 0);
-
-	*stackptr = USERSTACK;
-	return 0;
-}
 
 
 
-int
-as_copy(struct addrspace *old, struct addrspace **ret)
-{
-	struct addrspace *new;
-
-	dumbvm_can_sleep();
-
-	new = as_create();
-	if (new==NULL) {
-		return ENOMEM;
-	}
-
-	new->as_vbase1 = old->as_vbase1;
-	new->as_npages1 = old->as_npages1;
-	new->as_vbase2 = old->as_vbase2;
-	new->as_npages2 = old->as_npages2;
-
-	/* (Mis)use as_prepare_load to allocate some physical memory. */
-	if (as_prepare_load(new)) {
-		as_destroy(new);
-		return ENOMEM;
-	}
-
-	KASSERT(new->as_pbase1 != 0);
-	KASSERT(new->as_pbase2 != 0);
-	KASSERT(new->as_stackpbase != 0);
-
-	memmove((void *)PADDR_TO_KVADDR(new->as_pbase1),
-		(const void *)PADDR_TO_KVADDR(old->as_pbase1),
-		old->as_npages1*PAGE_SIZE);
-
-	memmove((void *)PADDR_TO_KVADDR(new->as_pbase2),
-		(const void *)PADDR_TO_KVADDR(old->as_pbase2),
-		old->as_npages2*PAGE_SIZE);
-
-	memmove((void *)PADDR_TO_KVADDR(new->as_stackpbase),
-		(const void *)PADDR_TO_KVADDR(old->as_stackpbase),
-		DUMBVM_STACKPAGES*PAGE_SIZE);
-
-	*ret = new;
-	return 0;
-}
 
 
 #endif

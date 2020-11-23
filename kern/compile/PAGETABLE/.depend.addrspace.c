@@ -5,5 +5,9 @@ addrspace.o: ../../vm/addrspace.c ../../include/types.h \
  ../../include/addrspace.h ../../include/vm.h includelinks/machine/vm.h \
  opt-dumbvm.h ../../include/elf.h includelinks/machine/elf.h \
  ../../include/PageTable.h opt-pagetable.h ../../include/spinlock.h \
- includelinks/machine/spinlock.h ../../include/proc.h ../../include/spl.h \
- includelinks/mips/tlb.h ../../include/vfs.h ../../include/array.h
+ includelinks/machine/spinlock.h ../../include/current.h \
+ includelinks/machine/current.h ../../include/thread.h \
+ ../../include/array.h ../../include/threadlist.h \
+ includelinks/machine/thread.h ../../include/setjmp.h \
+ includelinks/kern/machine/setjmp.h ../../include/proc.h \
+ ../../include/spl.h includelinks/mips/tlb.h ../../include/vfs.h

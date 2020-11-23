@@ -152,6 +152,6 @@ ram_getfirstfree(void)
 	return ret;
 }
 
-paddr_t ram_getfirst(void){
+paddr_t getfirst(void){
 	return firstpaddr;	
 	}

@@ -85,6 +85,7 @@ static unsigned char *freeRamFrames = NULL;
 static unsigned long *allocSize = NULL;
 static int nRamFrames = 0;
 
+
 static int allocTableActive = 0;
 
 static int isTableActive () {
@@ -112,9 +113,16 @@ vm_bootstrap(void)
     freeRamFrames[i] = (unsigned char)0;
     allocSize[i]     = 0;  
   }
+
   spinlock_acquire(&freemem_lock);
   allocTableActive = 1;
   spinlock_release(&freemem_lock);
+
+  if(!pagetable_init(((int)ram_getsize())/PAGE_SIZE)){
+	panic("Page table allocation fails\n");
+  }
+
+
 }
 
 /*
@@ -301,6 +309,7 @@ my_load_segment(struct addrspace *as, struct vnode *v,
 }
 
 
+#define TO_TLB_FLAG(p) (p &= (TLBLO_VALID | TLBLO_DIRTY))
 
 int
 vm_fault(int faulttype, vaddr_t faultaddress)
@@ -367,9 +376,11 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 	stacktop = USERSTACK; 
 
 	paddr_t p_temp;
+	pid_t pid = curproc -> pid;
+	char flag=0x0;
 	(void) p_temp;
 
-	int result = pagetable_getpaddr(as->pg,faultaddress,&p_temp); // tenta di trovare l'indirizzo in pagetable in p_temp passato per riferimento
+	int result = pagetable_getpaddr(faultaddress,&p_temp,&pid,&flag); // tenta di trovare l'indirizzo in pagetable in p_temp passato per riferimento
 	if(result==1){ //trovato! l'inserisco in TLB
 		paddr = p_temp;	
 		//paddr &= PAGE_FRAME;
@@ -381,7 +392,9 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 	paddr = getppages(1);
 	paddr &= PAGE_FRAME;
 	as_zero_region(paddr, 1);
-	result = pagetable_addentry(as->pg,faultaddress,paddr,0);
+	//flag |= (TLBLO_VALID >> 9);
+	flag = as->ph1.p_flags;
+	result = pagetable_addentry(faultaddress,paddr,pid,flag);
 	if(result<=0) return EFAULT;
 		if(faulttype == VM_FAULT_READ){ //significa che il primo accesso in assoluto nel segmento di codice(quando si avvia il programma). Carico in pagetable
 			int address_index = (int)(faultaddress - vbase1)/PAGE_SIZE;
@@ -406,8 +419,9 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		paddr = getppages(1);
 		paddr &= PAGE_FRAME;
 		as_zero_region(paddr, 1);
-
-		result=pagetable_addentry(as->pg,faultaddress,paddr,0); //aggiustare flag pagetable
+		//flag |= (TLBLO_VALID | TLBLO_DIRTY) >>9 ;
+		flag = as->ph2.p_flags;
+		result = pagetable_addentry(faultaddress,paddr,pid, flag); // qui puoi scrivere
 		if(result<=0) return EFAULT;
 		if(faulttype == VM_FAULT_READ){//significa che il primo accesso in assoluto nel segmento di dati(quando si avvia il programma). Carico in pagetable. Un volta in pagetable tutto il segmento non potrò mai più trovarmi qui.
 			int address_index = (int)(faultaddress - vbase2)/PAGE_SIZE;
@@ -432,7 +446,8 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		paddr = getppages(1);
 		paddr &= PAGE_FRAME;
 		as_zero_region(paddr, 1);
-		result=pagetable_addentry(as->pg,faultaddress,paddr,0);
+		flag |= (TLBLO_VALID | TLBLO_DIRTY) >> 9;
+		result = pagetable_addentry(faultaddress,paddr,pid,flag); // qui puoi scrivere
 		//paddr = (faultaddress - stackbase) + as->as_stackpbase;
 	}
 	else {
@@ -440,18 +455,25 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 	}
 
 	/* make sure it's page-aligned */
+
 	KASSERT((paddr & PAGE_FRAME) == paddr);
+	//KASSERT((flag & (TLBLO_VALID | TLBLO_DIRTY) >> 9)==flag);
+	KASSERT((pid & 0xfff) == pid); // non possono esserci PID >= 2^12;
 
 	/* Disable interrupts on this CPU while frobbing the TLB. */
 	spl = splhigh();
 
+	//flag &=  TLBLO_VALID | TLBLO_DIRTY;
+	
 	for (i=0; i<NUM_TLB; i++) {
 		tlb_read(&ehi, &elo, i);
 		if (elo & TLBLO_VALID) {
 			continue;
 		}
-		ehi = faultaddress;
-		elo = paddr | TLBLO_DIRTY | TLBLO_VALID;
+		//pid = pid << 6 ;
+		ehi = faultaddress | pid;
+		//int int_flag = (int) flag<<8 & (TLBLO_VALID | TLBLO_DIRTY);
+		elo = paddr | TLBLO_VALID | TLBLO_DIRTY;
 		DEBUG(DB_VM, "dumbvm: 0x%x -> 0x%x\n", faultaddress, paddr);
 		tlb_write(ehi, elo, i);
 		splx(spl);

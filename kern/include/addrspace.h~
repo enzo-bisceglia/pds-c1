@@ -39,6 +39,8 @@
 #include "opt-dumbvm.h"
 #include <elf.h>
 #include <PageTable.h>
+#include <type.h>
+#include <current.h>
 
 
 /*
@@ -51,23 +53,22 @@
 struct addrspace {
 #if OPT_PAGETABLE
         vaddr_t as_vbase1;
-        paddr_t as_pbase1;
+        //paddr_t as_pbase1;
 	Elf_Phdr ph1;
 	
         size_t as_npages1;
         vaddr_t as_vbase2;
-        paddr_t as_pbase2;
+        //paddr_t as_pbase2;
 	Elf_Phdr ph2;
         size_t as_npages2;
         paddr_t as_stackpbase;
 
         struct vnode *v;
-        
         Elf_Ehdr eh;
+
         /* Put stuff here for your VM system */
 
 
-	pagetable *pg;
 #endif
 };
 

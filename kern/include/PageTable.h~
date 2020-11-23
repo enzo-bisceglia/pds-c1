@@ -8,21 +8,29 @@
 #include <types.h>
 #include <spinlock.h>
 
+
 typedef struct _P {
-    paddr_t *p_frames;
+    vaddr_t *v_pages;
+    pid_t *pids;
     char *control;
+    //unsigned int occupied_frame;
     unsigned int length;
-    vaddr_t base_vaddr;
+    paddr_t pbase;
     struct spinlock pagetable_lock;
-    //aggiungere struct spinlock pagetable_spinlock;
+
 
 }pagetable;
 
+//FLAG FORMAT: bit 0 = valid/invalid, bit 1 = dirty, bit 2 = read_only
 
-pagetable *pagetable_init(int length, vaddr_t vaddr_base);
+int pagetable_init(int length);
 
-int pagetable_addentry(pagetable *pg,vaddr_t vaddr,paddr_t paddr,char flag);
+int pagetable_addentry(vaddr_t vaddr,paddr_t paddr,pid_t pid,char flag);
 
-int pagetable_getpaddr(pagetable *pg,vaddr_t vaddr, paddr_t *paddr);
+int pagetable_getpaddr(vaddr_t vaddr, paddr_t *paddr,pid_t *pid,char *flag);
+
+void pagetable_remove_entries(pid_t pid);
+
+void pagetable_destroy(void);
 
 #endif

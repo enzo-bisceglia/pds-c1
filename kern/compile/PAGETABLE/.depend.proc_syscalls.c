@@ -10,4 +10,4 @@ proc_syscalls.o: ../../syscall/proc_syscalls.c ../../include/types.h \
  includelinks/kern/machine/setjmp.h ../../include/addrspace.h \
  ../../include/vm.h includelinks/machine/vm.h opt-dumbvm.h \
  ../../include/elf.h includelinks/machine/elf.h ../../include/PageTable.h \
- opt-pagetable.h
+ opt-pagetable.h ../../include/current.h includelinks/machine/current.h

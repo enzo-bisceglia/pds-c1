@@ -428,7 +428,7 @@ proc_syscalls.o: ../../syscall/proc_syscalls.c ../../include/types.h \
  includelinks/kern/machine/setjmp.h ../../include/addrspace.h \
  ../../include/vm.h includelinks/machine/vm.h opt-dumbvm.h \
  ../../include/elf.h includelinks/machine/elf.h ../../include/PageTable.h \
- opt-pagetable.h
+ opt-pagetable.h ../../include/current.h includelinks/machine/current.h
 runprogram.o: ../../syscall/runprogram.c ../../include/types.h \
  ../../include/kern/types.h includelinks/kern/machine/types.h \
  includelinks/machine/types.h ../../include/kern/errno.h \
@@ -478,7 +478,8 @@ kmalloctest.o: ../../test/kmalloctest.c ../../include/types.h \
  includelinks/kern/machine/setjmp.h ../../include/synch.h \
  ../../include/vm.h ../../include/addrspace.h opt-dumbvm.h \
  ../../include/elf.h includelinks/machine/elf.h ../../include/PageTable.h \
- opt-pagetable.h includelinks/machine/vm.h ../../include/test.h
+ opt-pagetable.h ../../include/current.h includelinks/machine/current.h \
+ includelinks/machine/vm.h ../../include/test.h
 semunit.o: ../../test/semunit.c ../../include/types.h \
  ../../include/kern/types.h includelinks/kern/machine/types.h \
  includelinks/machine/types.h ../../include/lib.h ../../include/cdefs.h \
@@ -651,22 +652,33 @@ addrspace.o: ../../vm/addrspace.c ../../include/types.h \
  ../../include/addrspace.h ../../include/vm.h includelinks/machine/vm.h \
  opt-dumbvm.h ../../include/elf.h includelinks/machine/elf.h \
  ../../include/PageTable.h opt-pagetable.h ../../include/spinlock.h \
- includelinks/machine/spinlock.h ../../include/proc.h ../../include/spl.h \
- includelinks/mips/tlb.h ../../include/vfs.h ../../include/array.h
+ includelinks/machine/spinlock.h ../../include/current.h \
+ includelinks/machine/current.h ../../include/thread.h \
+ ../../include/array.h ../../include/threadlist.h \
+ includelinks/machine/thread.h ../../include/setjmp.h \
+ includelinks/kern/machine/setjmp.h ../../include/proc.h \
+ ../../include/spl.h includelinks/mips/tlb.h ../../include/vfs.h
 kmalloc.o: ../../vm/kmalloc.c ../../include/types.h \
  ../../include/kern/types.h includelinks/kern/machine/types.h \
  includelinks/machine/types.h ../../include/lib.h ../../include/cdefs.h \
  opt-noasserts.h ../../include/spinlock.h includelinks/machine/spinlock.h \
  ../../include/vm.h ../../include/addrspace.h opt-dumbvm.h \
  ../../include/elf.h includelinks/machine/elf.h ../../include/PageTable.h \
- opt-pagetable.h includelinks/machine/vm.h
+ opt-pagetable.h ../../include/current.h includelinks/machine/current.h \
+ ../../include/thread.h ../../include/array.h ../../include/threadlist.h \
+ includelinks/machine/thread.h ../../include/setjmp.h \
+ includelinks/kern/machine/setjmp.h includelinks/machine/vm.h
 PageTable.o: ../../vm/PageTable.c ../../include/PageTable.h \
  opt-pagetable.h ../../include/types.h ../../include/kern/types.h \
  includelinks/kern/machine/types.h includelinks/machine/types.h \
  ../../include/spinlock.h ../../include/cdefs.h \
  includelinks/machine/spinlock.h ../../include/lib.h opt-noasserts.h \
  ../../include/vm.h ../../include/addrspace.h opt-dumbvm.h \
- ../../include/elf.h includelinks/machine/elf.h includelinks/machine/vm.h
+ ../../include/elf.h includelinks/machine/elf.h ../../include/current.h \
+ includelinks/machine/current.h ../../include/thread.h \
+ ../../include/array.h ../../include/threadlist.h \
+ includelinks/machine/thread.h ../../include/setjmp.h \
+ includelinks/kern/machine/setjmp.h includelinks/machine/vm.h
 trap.o: ../../arch/mips/locore/trap.c ../../include/types.h \
  ../../include/kern/types.h includelinks/kern/machine/types.h \
  includelinks/machine/types.h ../../include/signal.h \
@@ -744,7 +756,11 @@ ram.o: ../../arch/mips/vm/ram.c ../../include/types.h \
  opt-noasserts.h ../../include/vm.h ../../include/addrspace.h \
  opt-dumbvm.h ../../include/elf.h includelinks/machine/elf.h \
  ../../include/PageTable.h opt-pagetable.h ../../include/spinlock.h \
- includelinks/machine/spinlock.h includelinks/machine/vm.h \
+ includelinks/machine/spinlock.h ../../include/current.h \
+ includelinks/machine/current.h ../../include/thread.h \
+ ../../include/array.h ../../include/threadlist.h \
+ includelinks/machine/thread.h ../../include/setjmp.h \
+ includelinks/kern/machine/setjmp.h includelinks/machine/vm.h \
  ../../include/mainbus.h
 adddi3.o: ../../../common/gcc-millicode/adddi3.c \
  ../../../common/gcc-millicode/longlong.h ../../include/types.h \
