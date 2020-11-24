@@ -36,6 +36,7 @@
 #include <vm.h>
 #include <proc.h>
 #include <coremap.h>
+#include "vmstats.h"
 
 #define SMARTVM_STACKPAGES    18
 /*
@@ -43,6 +44,7 @@
  * assignment, this file is not compiled or linked or in any way
  * used. The cheesy hack versions in dumbvm.c are used instead.
  */
+int tlb_inv = 0;
 
 struct addrspace *
 as_create(void)
@@ -115,6 +117,7 @@ as_activate(void)
 	for (i=0; i<NUM_TLB; i++) {
 		tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
 	}
+	tlb_inv++;
 
 	splx(spl);
 }

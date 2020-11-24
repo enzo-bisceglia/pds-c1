@@ -52,6 +52,7 @@
 #include "autoconf.h"  // for pseudoconfig
 #include "hello.h"
 #include "opt-hello.h"
+#include "vmstats.h"
 
 /*
  * These two pieces of data are maintained by the makefiles and build system.
@@ -73,6 +74,16 @@ static const char harvard_copyright[] =
     "   President and Fellows of Harvard College.  All rights reserved.\n";
 
 
+int tlb_faults;
+int tlb_faults_free;
+int tlb_faults_repl;
+int tlb_inv;
+int tlb_rel;
+int pf_z;
+int pf_disk;
+int pf_elf;
+int pf_swap;
+int sf_writes;
 /*
  * Initial boot sequence.
  */
@@ -154,7 +165,17 @@ shutdown(void)
 	vfs_clearbootfs();
 	vfs_clearcurdir();
 	vfs_unmountall();
-
+	/* print stats */
+	kprintf("TLB Faults: %d\n",tlb_faults);
+	kprintf("TLB Faults with Free: %d\n",tlb_faults_free);
+	kprintf("TLB Faults with Replace: %d\n",tlb_faults_repl);
+	kprintf("TLB Invalidations: %d\n",tlb_inv);
+	kprintf("TLB Reloads: %d\n",tlb_rel);
+	kprintf("Page Faults (Zeroed): %d\n",pf_z);
+	kprintf("Page Faults (Disk): %d\n",pf_disk);
+	kprintf("Page Faults from ELF: %d\n",pf_elf);
+	kprintf("Page Faults from SwapFile: %d\n",pf_swap);
+	kprintf("SwapFile Writes: %d\n",sf_writes);
 	thread_shutdown();
 
 	splhigh();

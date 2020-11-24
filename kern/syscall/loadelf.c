@@ -60,8 +60,13 @@
 #include <vnode.h>
 #include <elf.h>
 #include "opt-paging.h"
+#include "vmstats.h"
 
 #if OPT_PAGING
+
+int pf_disk = 0;
+int pf_elf = 0;
+
 static
 int
 load_page(struct addrspace *as, struct vnode *v,
@@ -364,6 +369,8 @@ load_elf(struct vnode *v, vaddr_t *entrypoint)
 
 			result = load_page(as, v, ph.p_offset+i, ph.p_vaddr+i,
 					PAGE_SIZE, i+PAGE_SIZE>ph.p_filesz ? ph.p_filesz-i : PAGE_SIZE, ph.p_flags & PF_X);
+			pf_disk++;
+			pf_elf++;
 			if (result)
 				return result;
 		}

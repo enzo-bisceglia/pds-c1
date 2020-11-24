@@ -9,7 +9,11 @@
 #include <vm.h> //ram_getsize
 
 #include <coremap.h>
+#include "vmstats.h"
 
+int tlb_faults;
+int tlb_faults_free;
+int tlb_faults_repl;
 
 
 void
@@ -17,6 +21,9 @@ vm_bootstrap(void) {
     /*
 	 * Write this.
 	 */
+	tlb_faults = 0;
+	tlb_faults_free = 0;
+	tlb_faults_repl = 0;
     coremap_bootstrap();
 }
 
@@ -43,6 +50,7 @@ vm_fault(int faulttype, vaddr_t faultaddress) {
 		panic("dumbvm: got VM_FAULT_READONLY\n");
 	    case VM_FAULT_READ:
 	    case VM_FAULT_WRITE:
+		tlb_faults++;
 		break;
 	    default:
 		return EINVAL;
@@ -107,10 +115,12 @@ vm_fault(int faulttype, vaddr_t faultaddress) {
 		DEBUG(DB_VM, "smartvm: 0x%x -> 0x%x\n", faultaddress, paddr);
 		tlb_write(ehi, elo, i);
 		splx(spl);
+		tlb_faults_free++;
 		return 0;
 	}
 
 	kprintf("dumbvm: Ran out of TLB entries - cannot handle page fault\n");
+	tlb_faults_repl++;
 	splx(spl);
 	return EFAULT;
 }
