@@ -96,7 +96,22 @@ as_destroy(struct addrspace *as)
 	/*
 	 * Clean up as needed.
 	 */
+	struct pte* pt = as->page_table;
+	size_t i, en = VADDR_TO_PTEN(as->as_vbase1);
+	for (i=0; i<as->as_npages1; i++){
+		freeppages(pt[en+i].paddr);
+	}
+	
+	en = VADDR_TO_PTEN(as->as_vbase2);
+	for (i=0; i<as->as_npages2; i++){
+		freeppages(pt[en+i].paddr);
+	}
 
+	en = VADDR_TO_PTEN((USERSTACK - (SMARTVM_STACKPAGES*PAGE_SIZE)));
+	for (i=0; i<SMARTVM_STACKPAGES; i++){
+		freeppages(pt[en+i].paddr);
+	}
+	pt_destroy(pt);
 	kfree(as);
 }
 

@@ -11,4 +11,5 @@ struct pte {
 };
 
 struct pte* pt_init(void);
+void pt_destroy(struct pte *);
 #endif /* _PT_H_ */

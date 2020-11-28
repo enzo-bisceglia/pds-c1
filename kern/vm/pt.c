@@ -11,3 +11,7 @@ struct pte* pt_init(void){
     }
     return pt;
 }
+
+void pt_destroy(struct pte* pt){
+    kfree(pt);
+}
