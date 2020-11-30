@@ -85,7 +85,7 @@ as_activate(void)
 	for (i=0; i<NUM_TLB; i++) {
 		tlb_read(&ehi, &elo, i);
 		pid_t entry_pid = ehi & 0xfff;
-		if( entry_pid!=pid && (ehi & TLBLO_VALID)!=0 )tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
+		if( entry_pid!=pid )tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
 	}
 
 	splx(spl);
