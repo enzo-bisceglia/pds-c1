@@ -53,15 +53,17 @@
 struct addrspace {
 #if OPT_PAGETABLE
         vaddr_t as_vbase1;
-        //paddr_t as_pbase1;
+	int code_read_complete;
 	Elf_Phdr ph1;
-	
         size_t as_npages1;
+	int ph1_loaded_page;
+
         vaddr_t as_vbase2;
-        //paddr_t as_pbase2;
 	Elf_Phdr ph2;
         size_t as_npages2;
         paddr_t as_stackpbase;
+	int data_read_complete;
+	int ph2_loaded_page;
 
         struct vnode *v;
         Elf_Ehdr eh;

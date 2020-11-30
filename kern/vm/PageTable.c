@@ -21,7 +21,7 @@ int pagetable_init(int length){
     pg->pids = kmalloc(sizeof(pid_t)*length);
     if(pg->pids==NULL) return 0;
 
-    pg -> control = kmalloc(sizeof(char)*length);
+    pg -> control = kmalloc(sizeof(uint16_t)*length);
     if(pg ->control==NULL) return 0;
 
 
@@ -36,7 +36,7 @@ int pagetable_init(int length){
     return 1;
 }
 
-int pagetable_addentry(vaddr_t vaddr,paddr_t paddr,pid_t pid,char flag){
+int pagetable_addentry(vaddr_t vaddr,paddr_t paddr,pid_t pid,uint16_t flag){
     if (vaddr>MIPS_KSEG0) return -1;
     vaddr_t relative_vaddr = vaddr & PAGE_FRAME;
     paddr &= PAGE_FRAME;
@@ -51,7 +51,7 @@ int pagetable_addentry(vaddr_t vaddr,paddr_t paddr,pid_t pid,char flag){
     return 1;
 }
 
-int pagetable_getpaddr(vaddr_t vaddr, paddr_t *paddr,pid_t *pid,char *flag){
+int pagetable_getpaddr(vaddr_t vaddr, paddr_t *paddr,pid_t *pid,uint16_t *flag){
     unsigned int i;
     vaddr_t relative_vaddr = vaddr & PAGE_FRAME;
     spinlock_acquire(&pg->pagetable_lock);
@@ -86,6 +86,18 @@ void pagetable_remove_entries(pid_t pid){
 		}	
 	}
 	spinlock_release(&pg->pagetable_lock);
+}
+
+int pagetable_change_flag(paddr_t paddr,uint16_t flag){
+    paddr &= PAGE_FRAME;
+    paddr = paddr - pg->pbase;
+    unsigned int frame_index = (int) paddr/PAGE_SIZE;
+    if(frame_index > pg->length) return 0;
+    spinlock_acquire(&pg->pagetable_lock);
+    pg ->control[frame_index] =flag;
+    spinlock_release(&pg->pagetable_lock);
+    return 1;
+    
 }
 
 void pagetable_destroy(void){

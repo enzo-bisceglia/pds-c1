@@ -36,7 +36,7 @@
 #include <spl.h>
 #include <mips/tlb.h>
 #include <vfs.h>
-
+#include <current.h>
 struct addrspace *
 as_create(void)
 {
@@ -44,6 +44,8 @@ as_create(void)
 	if (as==NULL) {
 		return NULL;
 	}
+	as->ph1_loaded_page=0;
+	as->ph2_loaded_page=0;
 
 	as->as_vbase1 = 0;
 
@@ -52,6 +54,8 @@ as_create(void)
 
 	as->as_npages2 = 0;
 	as->as_stackpbase = 0;
+	as->code_read_complete=0;
+	as->data_read_complete=0;
 	return as;
 }
 
@@ -67,7 +71,9 @@ as_activate(void)
 {
 	int i, spl;
 	struct addrspace *as;
-
+	uint32_t ehi,elo;
+	pid_t pid = curproc->pid;
+	(void) pid;
 	as = proc_getas();
 	if (as == NULL) {
 		return;
@@ -77,7 +83,9 @@ as_activate(void)
 	spl = splhigh();
 
 	for (i=0; i<NUM_TLB; i++) {
-		tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
+		tlb_read(&ehi, &elo, i);
+		pid_t entry_pid = ehi & 0xfff;
+		if( entry_pid!=pid && (ehi & TLBLO_VALID)!=0 )tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
 	}
 
 	splx(spl);

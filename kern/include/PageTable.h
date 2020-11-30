@@ -12,7 +12,7 @@
 typedef struct _P {
     vaddr_t *v_pages;
     pid_t *pids;
-    char *control;
+    uint16_t *control;
     //unsigned int occupied_frame;
     unsigned int length;
     paddr_t pbase;
@@ -25,11 +25,13 @@ typedef struct _P {
 
 int pagetable_init(int length);
 
-int pagetable_addentry(vaddr_t vaddr,paddr_t paddr,pid_t pid,char flag);
+int pagetable_addentry(vaddr_t vaddr,paddr_t paddr,pid_t pid,uint16_t flag);
 
-int pagetable_getpaddr(vaddr_t vaddr, paddr_t *paddr,pid_t *pid,char *flag);
+int pagetable_getpaddr(vaddr_t vaddr, paddr_t *paddr,pid_t *pid,uint16_t *flag);
 
 void pagetable_remove_entries(pid_t pid);
+
+int pagetable_change_flag(paddr_t paddr,uint16_t flag);
 
 void pagetable_destroy(void);
 
