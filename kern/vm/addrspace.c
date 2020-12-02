@@ -44,8 +44,6 @@ as_create(void)
 	if (as==NULL) {
 		return NULL;
 	}
-	as->ph1_loaded_page=0;
-	as->ph2_loaded_page=0;
 
 	as->as_vbase1 = 0;
 
