@@ -36,6 +36,11 @@
 
 
 #include <spinlock.h>
+#include "opt-synch.h"
+
+#if OPT_SYNCH
+#define LOCK_AS_SEM 0
+#endif
 
 /*
  * Dijkstra-style semaphore.
@@ -74,6 +79,17 @@ void V(struct semaphore *);
  */
 struct lock {
         char *lk_name;
+#if OPT_SYNCH
+        struct spinlock lk_own_splk;
+        volatile struct thread *lk_own;
+#if LOCK_AS_SEM
+        // semaphore impl
+        struct semaphore *lk_sem;
+#else
+        //spinlock impl
+        struct wchan *lk_wchan;
+#endif /* LOCK_AS_SEM */
+#endif /* OPT_SYNCH */
         // add what you need here
         // (don't forget to mark things volatile as needed)
 };

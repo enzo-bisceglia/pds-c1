@@ -161,7 +161,7 @@ locktestthread(void *junk, unsigned long num)
 		testval1 = num;
 		testval2 = num*num;
 		testval3 = num%3;
-
+		
 		if (testval2 != testval1*testval1) {
 			fail(num, "testval2/testval1");
 		}

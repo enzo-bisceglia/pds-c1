@@ -449,6 +449,7 @@ defoption syscalls
 optfile syscalls syscall/proc_syscalls.c
 optfile syscalls syscall/file_syscalls.c
 
+defoption synch
 ########################################
 #                                      #
 #                Paging                #

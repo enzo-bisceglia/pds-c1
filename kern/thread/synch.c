@@ -39,7 +39,11 @@
 #include <thread.h>
 #include <current.h>
 #include <synch.h>
+#include "opt-synch.h"
 
+#if OPT_SYNCH
+#define LOCK_AS_SEM 0
+#endif
 ////////////////////////////////////////////////////////////
 //
 // Semaphore.
@@ -153,7 +157,23 @@ lock_create(const char *name)
                 kfree(lock);
                 return NULL;
         }
-
+#if OPT_SYNCH
+#if LOCK_AS_SEM
+        lock->lk_sem = sem_create("lock_sem", 1);
+        if (lock->lk_sem == NULL) {
+	        kfree(lock);
+                return NULL;
+	}
+#else
+        lock->lk_wchan = wchan_create(lock->lk_name);
+        if (lock->lk_wchan==NULL){
+                kfree(lock);
+                return NULL;
+        }
+#endif /* LOCK_AS_SEM */
+        spinlock_init(&lock->lk_own_splk);
+        lock->lk_own = NULL;
+#endif /* OPT_SYNCH */
         // add stuff here as needed
 
         return lock;
@@ -163,7 +183,14 @@ void
 lock_destroy(struct lock *lock)
 {
         KASSERT(lock != NULL);
-
+#if OPT_SYNCH
+#if LOCK_AS_SEM
+        sem_destroy(lock->lk_sem);
+#else
+        wchan_destroy(lock->lk_wchan);
+#endif /* LOCK_AS_SEM */
+        spinlock_cleanup(&lock->lk_own_splk);
+#endif /* OPT_SYNCH */
         // add stuff here as needed
 
         kfree(lock->lk_name);
@@ -174,26 +201,68 @@ void
 lock_acquire(struct lock *lock)
 {
         // Write this
-
+#if OPT_SYNCH
+        KASSERT(lock!=NULL);
+        KASSERT(!lock_do_i_hold(lock));
+#if LOCK_AS_SEM
+        /* lock with semaphore */
+        P(lock->lk_sem);
+        spinlock_acquire(&lock->lk_own_splk);
+#else
+        /* lock with spinlock */
+        spinlock_acquire(&lock->lk_own_splk);
+        while(lock->lk_own!=NULL){
+                wchan_sleep(lock->lk_wchan, &lock->lk_own_splk);
+        }
+#endif  /* LOCK_AS_SEM */
+        KASSERT(lock->lk_own==NULL);
+        lock->lk_own=curthread;
+        spinlock_release(&lock->lk_own_splk);
+#else
         (void)lock;  // suppress warning until code gets written
+#endif  /* OPT_SYNCH */
 }
 
 void
 lock_release(struct lock *lock)
 {
         // Write this
-
+#if OPT_SYNCH
+        KASSERT(lock!=NULL);
+        KASSERT(lock_do_i_hold(lock));
+        spinlock_acquire(&lock->lk_own_splk);
+        lock->lk_own = NULL;
+        //don't release now, otherwise next thread could:
+        //- perform lock_acquire
+        //- perform lock_release before this very thread
+#if LOCK_AS_SEM
+        // lock with semaphore
+        V(lock->lk_sem);
+#else
+        wchan_wakeone(lock->lk_wchan, &lock->lk_own_splk);
+#endif /* LOCK_AS_SEM */
+        spinlock_release(&lock->lk_own_splk);
+#else
         (void)lock;  // suppress warning until code gets written
+#endif  /* OPT_SYNCH */
 }
 
 bool
 lock_do_i_hold(struct lock *lock)
 {
         // Write this
-
+#if OPT_SYNCH
+        bool result;
+        KASSERT(lock!=NULL);
+        spinlock_acquire(&lock->lk_own_splk);
+        result = lock->lk_own == curthread;
+        spinlock_release(&lock->lk_own_splk);
+        return result;
+#else
         (void)lock;  // suppress warning until code gets written
 
         return true; // dummy until code gets written
+#endif
 }
 
 ////////////////////////////////////////////////////////////
