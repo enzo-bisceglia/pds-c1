@@ -37,8 +37,11 @@
 
 #include <vm.h>
 #include "opt-dumbvm.h"
+#include <elf.h>
+#include <PageTable.h>
+#include <types.h>
+#include <current.h>
 
-struct vnode;
 
 
 /*
@@ -49,16 +52,25 @@ struct vnode;
  */
 
 struct addrspace {
-#if OPT_DUMBVM
+#if OPT_PAGETABLE
         vaddr_t as_vbase1;
-        paddr_t as_pbase1;
+	int code_read_complete;
+	Elf_Phdr ph1;
         size_t as_npages1;
+
         vaddr_t as_vbase2;
-        paddr_t as_pbase2;
+	Elf_Phdr ph2;
         size_t as_npages2;
         paddr_t as_stackpbase;
-#else
+	int data_read_complete;
+
+        struct vnode *v; 
+        Elf_Ehdr eh;
+
         /* Put stuff here for your VM system */
+        int count_proc; //variabile che mi indica quante entry di questo proesso carico in PT
+
+
 #endif
 };
 
@@ -102,7 +114,7 @@ struct addrspace {
  * Note that when using dumbvm, addrspace.c is not used and these
  * functions are found in dumbvm.c.
  */
-
+#define VADDR_SIZE 1048576
 struct addrspace *as_create(void);
 int               as_copy(struct addrspace *src, struct addrspace **ret);
 void              as_activate(void);
@@ -110,14 +122,14 @@ void              as_deactivate(void);
 void              as_destroy(struct addrspace *);
 
 int               as_define_region(struct addrspace *as,
-                                   vaddr_t vaddr, size_t sz,
+                                   Elf_Phdr ph,
                                    int readable,
                                    int writeable,
                                    int executable);
 int               as_prepare_load(struct addrspace *as);
 int               as_complete_load(struct addrspace *as);
 int               as_define_stack(struct addrspace *as, vaddr_t *initstackptr);
-
+void as_zero_region(paddr_t paddr, unsigned npages);
 
 /*
  * Functions in loadelf.c
@@ -126,7 +138,7 @@ int               as_define_stack(struct addrspace *as, vaddr_t *initstackptr);
  *               in the space pointed to by ENTRYPOINT.
  */
 
-int load_elf(struct vnode *v, vaddr_t *entrypoint);
+int load_elf(struct vnode *v, vaddr_t *entrypoint,  Elf_Ehdr *eh_ret);
 
 
 #endif /* _ADDRSPACE_H_ */

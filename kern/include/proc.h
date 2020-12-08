@@ -37,6 +37,7 @@
  */
 
 #include <spinlock.h>
+#include <types.h>
 
 struct addrspace;
 struct thread;
@@ -70,8 +71,11 @@ struct proc {
 	/* VFS */
 	struct vnode *p_cwd;		/* current working directory */
 
+	pid_t pid;
 	/* add more material here as needed */
 };
+
+pid_t proc_search_pid(struct proc* p);
 
 /* This is the process structure for the kernel and for kernel-only threads. */
 extern struct proc *kproc;

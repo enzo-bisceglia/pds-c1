@@ -2,29 +2,55 @@
 // Created by attil on 10/11/2020.
 //
 
-#ifndef PGOS161_PAGETABLE_H
-#define PGOS161_PAGETABLE_H
+#ifndef _PAGETABLE_H_
+#define _PAGETABLE_H_
+#include "opt-pagetable.h"
+#include <types.h>
+#include <spinlock.h>
 
-struct page_table{
-    paddr_t *p_frames;
-    char *control;
+
+typedef struct _P {
+    vaddr_t *v_pages;
+    pid_t *pids;
+    uint16_t *control;
+    //unsigned int occupied_frame;
     unsigned int length;
-    vaddr_t base_vaddr;
-    //aggiungere struct spinlock pagetable_spinlock;
-} typedef pagetable;
+    paddr_t pbase;
+    struct spinlock pagetable_lock;
+    int* old_count;
+    paddr_t *p_pages;
 
-pagetable *pagetable_init(int length, vaddr_t vaddr_base);
+}pagetable;
 
-int pagetable_addentry(pagetable *pg,int vaddr,paddr_t paddr,char flag);
 
-int pagetable_removeaddr(pagetable *pg,vaddr_t vaddr);
+//FLAG FORMAT: bit 0 = valid/invalid, bit 1 = dirty, bit 2 = write allowed
 
-int pagetable_getpaddr(pagetable *pg,vaddr_t vaddr);
+int pagetable_init(int length);
 
-char pagetable_getcontrolbit(pagetable *pg, vaddr_t vaddr);
+int pagetable_addentry(vaddr_t vaddr,paddr_t paddr,pid_t pid,uint16_t flag);
 
-int pagetable_getlength(pagetable *pg);
+int pagetable_getpaddr(vaddr_t vaddr, paddr_t *paddr,pid_t *pid,uint16_t *flag);
 
-void pagetable_destroy(pagetable *pg);
+void pagetable_remove_entries(pid_t pid);
 
-#endif //PGOS161_PAGETABLE_H
+/*void pagetable_remove_entry(pid_t pid, uint16_t control, vaddr_t v_page);*/
+
+void pagetable_remove_entry(int replace_index);
+
+int pagetable_change_flag(paddr_t paddr,uint16_t flag);
+
+void pagetable_destroy(void);
+
+/*int pagetable_replacement(vaddr_t temp,paddr_t paddr,pid_t pid,uint16_t flag);*/
+
+int pagetable_replacement(pid_t pid);
+
+vaddr_t pagetable_getVaddrByIndex(int index);
+
+paddr_t pagetable_getPaddrByIndex(int index);
+
+pid_t pagetable_getPidByIndex(int index);
+
+
+
+#endif

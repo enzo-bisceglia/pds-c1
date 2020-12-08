@@ -44,6 +44,10 @@
 #include <vfs.h>
 #include <syscall.h>
 #include <test.h>
+#include <vnode.h>
+#include <elf.h>
+#include <types.h>
+#include <uio.h>
 
 /*
  * Load program "progname" and start running it in usermode.
@@ -56,6 +60,8 @@ runprogram(char *progname)
 {
 	struct addrspace *as;
 	struct vnode *v;
+    	//Elf_Ehdr eh;
+    	//Elf_Phdr ph;
 	vaddr_t entrypoint, stackptr;
 	int result;
 
@@ -79,16 +85,20 @@ runprogram(char *progname)
 	proc_setas(as);
 	as_activate();
 
+	as->v = v;
+	
+
 	/* Load the executable. */
-	result = load_elf(v, &entrypoint);
+	result = load_elf(v, &entrypoint,&as->eh);
 	if (result) {
 		/* p_addrspace will go away when curproc is destroyed */
 		vfs_close(v);
 		return result;
 	}
 
+
 	/* Done with the file now. */
-	vfs_close(v);
+	//vfs_close(v);
 
 	/* Define the user stack in the address space */
 	result = as_define_stack(as, &stackptr);
@@ -96,6 +106,7 @@ runprogram(char *progname)
 		/* p_addrspace will go away when curproc is destroyed */
 		return result;
 	}
+
 
 	/* Warp to user mode. */
 	enter_new_process(0 /*argc*/, NULL /*userspace addr of argv*/,

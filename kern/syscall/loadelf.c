@@ -74,7 +74,7 @@
  * change this code to not use uiomove, be sure to check for this case
  * explicitly.
  */
-static
+/*static
 int
 load_segment(struct addrspace *as, struct vnode *v,
 	     off_t offset, vaddr_t vaddr,
@@ -109,25 +109,12 @@ load_segment(struct addrspace *as, struct vnode *v,
 	}
 
 	if (u.uio_resid != 0) {
-		/* short read; problem with executable? */
+
 		kprintf("ELF: short read on segment - file truncated?\n");
 		return ENOEXEC;
 	}
 
-	/*
-	 * If memsize > filesize, the remaining space should be
-	 * zero-filled. There is no need to do this explicitly,
-	 * because the VM system should provide pages that do not
-	 * contain other processes' data, i.e., are already zeroed.
-	 *
-	 * During development of your VM system, it may have bugs that
-	 * cause it to (maybe only sometimes) not provide zero-filled
-	 * pages, which can cause user programs to fail in strange
-	 * ways. Explicitly zeroing program BSS may help identify such
-	 * bugs, so the following disabled code is provided as a
-	 * diagnostic tool. Note that it must be disabled again before
-	 * you submit your code for grading.
-	 */
+
 #if 0
 	{
 		size_t fillamt;
@@ -143,7 +130,7 @@ load_segment(struct addrspace *as, struct vnode *v,
 #endif
 
 	return result;
-}
+}*/
 
 /*
  * Load an ELF executable user program into the current address space.
@@ -151,7 +138,7 @@ load_segment(struct addrspace *as, struct vnode *v,
  * Returns the entry point (initial PC) for the program in ENTRYPOINT.
  */
 int
-load_elf(struct vnode *v, vaddr_t *entrypoint)
+load_elf(struct vnode *v, vaddr_t *entrypoint,  Elf_Ehdr *eh_ret)
 {
 	Elf_Ehdr eh;   /* Executable header */
 	Elf_Phdr ph;   /* "Program header" = segment header */
@@ -162,6 +149,10 @@ load_elf(struct vnode *v, vaddr_t *entrypoint)
 
 	as = proc_getas();
 
+	
+
+
+	
 	/*
 	 * Read the executable header from offset 0 in the file.
 	 */
@@ -217,6 +208,9 @@ load_elf(struct vnode *v, vaddr_t *entrypoint)
 	 * to find where the phdr starts.
 	 */
 
+	*eh_ret = eh;
+
+
 	for (i=0; i<eh.e_phnum; i++) {
 		off_t offset = eh.e_phoff + i*eh.e_phentsize;
 		uio_kinit(&iov, &ku, &ph, sizeof(ph), offset, UIO_READ);
@@ -244,7 +238,7 @@ load_elf(struct vnode *v, vaddr_t *entrypoint)
 		}
 
 		result = as_define_region(as,
-					  ph.p_vaddr, ph.p_memsz,
+					  ph,
 					  ph.p_flags & PF_R,
 					  ph.p_flags & PF_W,
 					  ph.p_flags & PF_X);
@@ -258,11 +252,13 @@ load_elf(struct vnode *v, vaddr_t *entrypoint)
 		return result;
 	}
 
+
+
 	/*
 	 * Now actually load each segment.
 	 */
 
-	for (i=0; i<eh.e_phnum; i++) {
+	/*for (i=0; i<eh.e_phnum; i++) {
 		off_t offset = eh.e_phoff + i*eh.e_phentsize;
 		uio_kinit(&iov, &ku, &ph, sizeof(ph), offset, UIO_READ);
 
@@ -272,15 +268,15 @@ load_elf(struct vnode *v, vaddr_t *entrypoint)
 		}
 
 		if (ku.uio_resid != 0) {
-			/* short read; problem with executable? */
+
 			kprintf("ELF: short read on phdr - file truncated?\n");
 			return ENOEXEC;
 		}
 
 		switch (ph.p_type) {
-		    case PT_NULL: /* skip */ continue;
-		    case PT_PHDR: /* skip */ continue;
-		    case PT_MIPS_REGINFO: /* skip */ continue;
+		    case PT_NULL:  continue;
+		    case PT_PHDR:  continue;
+		    case PT_MIPS_REGINFO:  continue;
 		    case PT_LOAD: break;
 		    default:
 			kprintf("loadelf: unknown segment type %d\n",
@@ -294,12 +290,16 @@ load_elf(struct vnode *v, vaddr_t *entrypoint)
 		if (result) {
 			return result;
 		}
-	}
+	}*/
 
 	result = as_complete_load(as);
 	if (result) {
 		return result;
 	}
+
+
+
+	(void) eh_ret;
 
 	*entrypoint = eh.e_entry;
 
