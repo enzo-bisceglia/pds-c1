@@ -79,7 +79,41 @@ as_copy(struct addrspace *old, struct addrspace **ret)
 	if (newas==NULL) {
 		return ENOMEM;
 	}
-	
+#if OPT_SYNCH
+	size_t i;
+	int result, en;
+
+	newas->as_npages1 = old->as_npages1;
+	newas->as_npages2 = old->as_npages2;
+	newas->as_vbase1 = old->as_vbase1;
+	newas->as_vbase2 = old->as_vbase2;
+
+	result = as_prepare_load(newas);
+	if (result){
+		return result;
+	}
+	// copy code
+	en = VADDR_TO_PTEN(newas->as_vbase1);
+	for (i=0; i<newas->as_npages1; i++){
+		memcpy((void*)PADDR_TO_KVADDR(newas->page_table[en+i].paddr),
+			(const void*)PADDR_TO_KVADDR(old->page_table[en+i].paddr),
+			PAGE_SIZE);
+	}
+	// copy data
+	en = VADDR_TO_PTEN(newas->as_vbase1);
+	for (i=0; i<newas->as_npages1; i++){
+		memcpy((void*)PADDR_TO_KVADDR(newas->page_table[en+i].paddr),
+			(const void*)PADDR_TO_KVADDR(old->page_table[en+i].paddr),
+			PAGE_SIZE);
+	}
+	// copy stack
+	en = VADDR_TO_PTEN((USERSTACK-(SMARTVM_STACKPAGES*PAGE_SIZE)));
+	for (i=0; i<SMARTVM_STACKPAGES; i++){
+		memcpy((void*)PADDR_TO_KVADDR(newas->page_table[en+i].paddr),
+			(const void*)PADDR_TO_KVADDR(old->page_table[en+i].paddr),
+			PAGE_SIZE);
+	}
+#endif
 	/*
 	 * Write this.
 	 */
@@ -222,24 +256,30 @@ as_prepare_load(struct addrspace *as)
 	KASSERT(en<PT_LENGTH);
 	for (i=0; i<as->as_npages1; i++){
 		pt[en+i].paddr = getppages(1);
+		if (pt[en+i].paddr == 0)
+			return ENOMEM;
 		as_zero_region(pt[en+i].paddr, 1);
-		pt[en+i].valid = 1;
+		//pt[en+i].valid = 1;
 	}
 
 	en = VADDR_TO_PTEN(as->as_vbase2);
 	KASSERT(en<PT_LENGTH);
 	for (i=0; i<as->as_npages2; i++){
 		pt[en+i].paddr = getppages(1);
+		if (pt[en+i].paddr == 0)
+			return ENOMEM;
 		as_zero_region(pt[en+i].paddr, 1);
-		pt[en+i].valid = 1;
+		//pt[en+i].valid = 1;
 	}
 	
 	en = VADDR_TO_PTEN((USERSTACK-(SMARTVM_STACKPAGES*PAGE_SIZE)));
 	KASSERT(en<PT_LENGTH);
 	for (i=0; i<SMARTVM_STACKPAGES; i++){
 		pt[en+i].paddr = getppages(1);
+		if (pt[en+i].paddr == 0)
+			return ENOMEM;
 		as_zero_region(pt[en+i].paddr, 1);
-		pt[en+i].valid = 1;
+		//pt[en+i].valid = 1;
 	}
 
 	return 0;

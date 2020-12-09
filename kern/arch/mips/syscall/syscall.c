@@ -34,6 +34,7 @@
 #include <mips/trapframe.h>
 #include <current.h>
 #include <syscall.h>
+#include <addrspace.h>
 #include "opt-synch.h"
 
 /*
@@ -115,16 +116,14 @@ syscall(struct trapframe *tf)
 				(userptr_t)tf->tf_a1,
 				(size_t)tf->tf_a2);
 		/* error: function not implemented */
-                if (retval<0) err = ENOSYS; 
-		else err = 0;
+			err = retval<0 ? ENOSYS : 0;
                 break;
 	    case SYS_read:
 	        retval = sys_read((int)tf->tf_a0,
 				(userptr_t)tf->tf_a1,
 				(size_t)tf->tf_a2);
 		/* error: function not implemented */
-                if (retval<0) err = ENOSYS; 
-		else err = 0;
+            err = retval<0 ? ENOSYS : 0;
                 break;
 	    case SYS__exit:
 	        /* TODO: just avoid crash */
@@ -134,16 +133,17 @@ syscall(struct trapframe *tf)
 #if OPT_SYNCH
 		case SYS_getpid:
 			retval = sys_getpid();
+			err = retval<0 ? ENOSYS : 0;
 			break;
 		case SYS_waitpid:
 			retval = sys_waitpid((pid_t)tf->tf_a0,
 					(userptr_t)tf->tf_a1,
 					(int)tf->tf_a2);
-			if (retval<0) err = EINVAL;
+			err = retval<0 ? ENOSYS : 0;
 			break;
 		case SYS_fork:
 			
-			retval = sys_fork(tf);
+			err = sys_fork(tf, &retval);
 			break;
 #endif
 
@@ -194,12 +194,16 @@ void
 enter_forked_process(struct trapframe *tf)
 {
 #if OPT_SYNCH
-	struct trapframe ts;
+	struct trapframe tf_on_stack = *tf;
 	
-	memcpy(&ts, tf, sizeof(*tf));
-	ts.tf_epc += 4; /* so that the instruction following fork() is executed*/
-	ts.tf_a0 = 0; /* return value of fork in the child */
-	mips_usermode(&ts);
+	
+	tf_on_stack.tf_v0 = 0; /* return value of fork in the child */
+	tf_on_stack.tf_a3 = 0; /*signal no error */
+	tf_on_stack.tf_epc += 4; /* so that the instruction following fork() is executed*/
+
+	as_activate();
+
+	mips_usermode(&tf_on_stack);
 #else
 	(void)tf;
 #endif

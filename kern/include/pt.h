@@ -7,7 +7,7 @@
 
 struct pte {
     paddr_t paddr;
-    int valid;
+    //int valid;
 };
 
 struct pte* pt_init(void);

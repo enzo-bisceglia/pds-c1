@@ -70,7 +70,7 @@ void sys__exit(int status);
 #if OPT_SYNCH
 pid_t sys_getpid(void);
 pid_t sys_waitpid(pid_t pid, userptr_t wstatus, int options);
-pid_t sys_fork(struct trapframe* tf_src);
+pid_t sys_fork(struct trapframe* tf_src, pid_t* retval);
 #endif
 
 #endif /* _SYSCALL_H_ */

@@ -7,6 +7,7 @@
 
 #include <types.h>
 #include <kern/unistd.h>
+#include <kern/errno.h>
 #include <clock.h>
 #include <copyinout.h>
 #include <syscall.h>
@@ -66,43 +67,53 @@ sys_waitpid(pid_t pid, userptr_t wstatus, int options){
 
 static
 void
-fork_wrap(void* tf, unsigned long u){
-    (void)u;
-    enter_forked_process((struct trapframe* )tf);
+fork_wrap(void *tf, unsigned long foo){
+    (void)foo;
+    enter_forked_process((struct trapframe*)tf);
+    panic("enter_forked_process returned (should not happen)\n");
 }
 
 pid_t
-sys_fork(struct trapframe* tf_src){
+sys_fork(struct trapframe* trap_tf, pid_t* retval){
     
+    struct trapframe *tf;
     struct proc* proc;
-    struct addrspace *as;
-    //struct trapframe* tf;
     int result;
+
     /* Create a process for the new program to run in. */
     proc = proc_create_runprogram("forked");
     if (proc == NULL) {
-		return -1;
+		return ENOMEM;
 	}
+    /* Create an exact copy of the parent address space. as_activate will be called by thread_startup */
+    result = as_copy(curproc->p_addrspace, &proc->p_addrspace);
+    if (result) {
+        proc_destroy(proc);
+        return ENOMEM;
+    }
+    /* Trapframe is needed for the child when it has to jump to the instruction following this one */
+    tf = kmalloc(sizeof(struct trapframe));
+    if (tf == NULL){
+        proc_destroy(proc);
+        return ENOMEM;
+    }
 
-    /* now the trapframe for the forked process is set */
-    /* who should set the address space? current process or forked one (by passing *as as parameter) ? */
-    as_copy(curproc->p_addrspace, &as);
-    proc_setas(as);
+    memcpy(tf, trap_tf, sizeof(struct trapframe));
 
     result = thread_fork("forked",
             proc,
             fork_wrap,
-            tf_src, 0);
-            
-    thread_yield();
+            (void*)tf, (unsigned long)0);
 
     if (result){
         kprintf("thread_fork failed: %s\n", strerror(result));
 		proc_destroy(proc);
-		return result;
+        kfree(tf);
+		return ENOMEM;
     }
 
-    return 0;
+    *retval = proc->pid;
+    return 0; 
 
 }
 #endif

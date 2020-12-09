@@ -93,7 +93,7 @@ vm_fault(int faulttype, vaddr_t faultaddress) {
 	|| (faultaddress >= stackbase && faultaddress < stacktop)){
 		struct pte* pt = as->page_table;
 		size_t en = VADDR_TO_PTEN(faultaddress);
-		KASSERT(pt[en].valid==1);
+		//KASSERT(pt[en].valid==1);
 		paddr = pt[en].paddr;	
 	}
 	else{
