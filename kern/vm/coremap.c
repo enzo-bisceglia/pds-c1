@@ -15,7 +15,8 @@ static struct spinlock freemem_lock = SPINLOCK_INITIALIZER;
 static unsigned char *freeRamFrames = NULL;
 static unsigned long *allocSize = NULL;
 static int nRamFrames = 0;
-
+static int framesNotTracked = 0;
+int framesFreed = 0;
 static int allocTableActive = 0;
 
 static int isTableActive (void) {
@@ -43,6 +44,8 @@ coremap_bootstrap(void) {
 		freeRamFrames[i] = (unsigned char)0;
 		allocSize[i]     = 0;
 	}
+	/* get first address that can be tracked */
+	framesNotTracked = ((int)allocSize+(sizeof(unsigned long)*nRamFrames)-MIPS_KSEG0)/4096;
 	spinlock_acquire(&freemem_lock);
 	allocTableActive = 1;
 	spinlock_release(&freemem_lock);
@@ -102,7 +105,8 @@ getppages(unsigned long npages) {
 		spinlock_acquire(&freemem_lock);
     	allocSize[addr/PAGE_SIZE] = npages;
     	spinlock_release(&freemem_lock);
-	} 
+	}
+	framesFreed-=npages;
 	return addr;
 }
 
@@ -121,6 +125,6 @@ freeppages(paddr_t addr){
     	freeRamFrames[i] = (unsigned char)1;
   	}
   	spinlock_release(&freemem_lock);
-
+	framesFreed+=np;
 	return 1;
 }

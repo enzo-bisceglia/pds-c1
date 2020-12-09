@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <unistd.h>
 
 int
 main(void)
@@ -7,6 +8,6 @@ main(void)
 	while(i<65535){
 		i++;
 	}
-	printf("end\n");
+	printf("my pid: %d\n", getpid());
 	return 0;
 }

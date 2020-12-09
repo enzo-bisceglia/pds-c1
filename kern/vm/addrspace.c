@@ -74,12 +74,12 @@ int
 as_copy(struct addrspace *old, struct addrspace **ret)
 {
 	struct addrspace *newas;
-
+	
 	newas = as_create();
 	if (newas==NULL) {
 		return ENOMEM;
 	}
-
+	
 	/*
 	 * Write this.
 	 */

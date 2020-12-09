@@ -48,11 +48,81 @@
 #include <current.h>
 #include <addrspace.h>
 #include <vnode.h>
+#include "opt-synch.h"
+#if OPT_SYNCH
+#include <limits.h>
+#define MAX_P 100
+#endif
 
+struct pidt_e{
+	pid_t pid;
+	struct proc* proc;
+};
 /*
  * The process for the kernel; this holds all the kernel-only threads.
  */
 struct proc *kproc;
+
+#if OPT_SYNCH
+
+static struct pidt_e pid_table[MAX_P];
+static int pt_index; //first cell (pid) available
+static struct spinlock pt_lock = SPINLOCK_INITIALIZER;
+
+int
+proc_wait(struct proc* proc) {
+	
+	int exit_code;
+
+	P(proc->waitsem);
+	exit_code = proc->status;
+	proc_destroy(proc);
+
+	return exit_code;
+}
+
+struct proc*
+get_proc_with_pid(pid_t pid){
+	int i = pid - PID_MIN;
+	KASSERT(i>=0 && i<=MAX_P);
+	return pid_table[i].proc;
+}
+
+static
+int
+assign_pid(struct proc* proc){
+
+	int i;
+	KASSERT(pt_index>=0 && pt_index<MAX_P);
+	spinlock_acquire(&pt_lock);
+	for (i=0; i<MAX_P; i++){
+		if (pid_table[pt_index].proc==NULL){
+			pid_t pid = PID_MIN + pt_index;
+			KASSERT(pid>=PID_MIN && pid<=PID_MAX);
+			pid_table[pt_index].proc = proc;
+			pid_table[pt_index].pid = pid;
+			proc->pid = pid;
+			pt_index = pt_index+1 == MAX_P+1 ? 0 : pt_index+1;
+			break;
+		}
+		if (++pt_index==MAX_P)
+			pt_index=0;
+	}
+	spinlock_release(&pt_lock);
+
+	return i == MAX_P ? -1 : 0;
+}
+
+static
+void
+remove_pid(struct proc* proc){
+	int i = proc->pid - PID_MIN;
+	KASSERT(i>=0 && i<MAX_P);
+	spinlock_acquire(&pt_lock);
+	pid_table[i].proc = NULL;
+	spinlock_release(&pt_lock);
+}
+#endif
 
 /*
  * Create a proc structure.
@@ -72,7 +142,18 @@ proc_create(const char *name)
 		kfree(proc);
 		return NULL;
 	}
-
+#if OPT_SYNCH
+	
+	int res = assign_pid(proc);
+	if (res == -1)
+		panic("too many processes");
+	
+	proc->waitsem = sem_create("waitsem", 0);
+	if (proc->waitsem == NULL) {
+		kfree(proc);
+		return NULL;
+	}
+#endif
 	proc->p_numthreads = 0;
 	spinlock_init(&proc->p_lock);
 
@@ -105,6 +186,9 @@ proc_destroy(struct proc *proc)
 	KASSERT(proc != NULL);
 	KASSERT(proc != kproc);
 
+#if OPT_SYNCH
+	remove_pid(proc);
+#endif
 	/*
 	 * We don't take p_lock in here because we must have the only
 	 * reference to this structure. (Otherwise it would be

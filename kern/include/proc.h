@@ -37,7 +37,11 @@
  */
 
 #include <spinlock.h>
-
+#include "opt-syscalls.h"
+#include "opt-synch.h"
+#if OPT_SYNCH
+#include <synch.h>
+#endif
 struct addrspace;
 struct thread;
 struct vnode;
@@ -69,12 +73,24 @@ struct proc {
 
 	/* VFS */
 	struct vnode *p_cwd;		/* current working directory */
-
+#if OPT_SYSCALLS
+	int status;
+#endif
+#if OPT_SYNCH
+	/* SYNCHRO */
+	pid_t pid;
+	struct semaphore* waitsem;
+#endif
 	/* add more material here as needed */
 };
 
 /* This is the process structure for the kernel and for kernel-only threads. */
 extern struct proc *kproc;
+
+#if OPT_SYNCH
+int proc_wait(struct proc * proc);
+struct proc * get_proc_with_pid(pid_t pid);
+#endif
 
 /* Call once during system startup to allocate data structures. */
 void proc_bootstrap(void);

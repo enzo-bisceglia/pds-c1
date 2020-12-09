@@ -34,7 +34,7 @@
 #include <mips/trapframe.h>
 #include <current.h>
 #include <syscall.h>
-
+#include "opt-synch.h"
 
 /*
  * System call dispatcher.
@@ -131,6 +131,21 @@ syscall(struct trapframe *tf)
  	        sys__exit((int)tf->tf_a0);
                 break;
 #endif
+#if OPT_SYNCH
+		case SYS_getpid:
+			retval = sys_getpid();
+			break;
+		case SYS_waitpid:
+			retval = sys_waitpid((pid_t)tf->tf_a0,
+					(userptr_t)tf->tf_a1,
+					(int)tf->tf_a2);
+			if (retval<0) err = EINVAL;
+			break;
+		case SYS_fork:
+			
+			retval = sys_fork(tf);
+			break;
+#endif
 
 	    default:
 		kprintf("Unknown syscall %d\n", callno);
@@ -178,5 +193,14 @@ syscall(struct trapframe *tf)
 void
 enter_forked_process(struct trapframe *tf)
 {
+#if OPT_SYNCH
+	struct trapframe ts;
+	
+	memcpy(&ts, tf, sizeof(*tf));
+	ts.tf_epc += 4; /* so that the instruction following fork() is executed*/
+	ts.tf_a0 = 0; /* return value of fork in the child */
+	mips_usermode(&ts);
+#else
 	(void)tf;
+#endif
 }
