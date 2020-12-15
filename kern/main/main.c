@@ -84,7 +84,8 @@ int pf_disk;
 int pf_elf;
 int pf_swap;
 int sf_writes;
-int framesFreed;
+int before_vm;
+int should_be_zero;
 /*
  * Initial boot sequence.
  */
@@ -177,7 +178,7 @@ shutdown(void)
 	kprintf("Page Faults from ELF: %d\n",pf_elf);
 	kprintf("Page Faults from SwapFile: %d\n",pf_swap);
 	kprintf("SwapFile Writes: %d\n",sf_writes);
-	kprintf("#####LEAKAGE ?? = %d\n",framesFreed + 12 /* kernel frames allocated before vm_bootstrap */);
+	kprintf("#####KERNELS: %d -- BEFORE VM INIT: %d -- SHOULD BE ZERO : %d\n",0x3d000>>12, before_vm, should_be_zero);
 	thread_shutdown();
 
 	splhigh();

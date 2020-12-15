@@ -11,6 +11,7 @@ extern int pf_disk;
 extern int pf_elf;
 extern int pf_swap;     /*?*/
 extern int sf_writes;   /*?*/
-extern int framesFreed;
+extern int before_vm;
+extern int should_be_zero;
 
 #endif /* _VMSTATS_H_ */

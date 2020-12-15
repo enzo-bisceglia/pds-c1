@@ -458,5 +458,5 @@ defoption synch
 
 defoption paging
 optfile paging vm/smartvm.c
-optfile paging vm/coremap.c
+#optfile paging vm/coremap.c
 optfile paging vm/pt.c
