@@ -32,11 +32,13 @@
 #include <lib.h>
 #include <spl.h>
 #include <mips/tlb.h>
+#include <current.h>
 #include <addrspace.h>
 #include <vm.h>
 #include <proc.h>
-#include <coremap.h>
+//#include <coremap.h>
 #include "vmstats.h"
+#include "opt-paging.h"
 
 #define SMARTVM_STACKPAGES    18
 /*
@@ -134,16 +136,19 @@ as_destroy(struct addrspace *as)
 	size_t i, en = VADDR_TO_PTEN(as->as_vbase1);
 	for (i=0; i<as->as_npages1; i++){
 		freeppages(pt[en+i].paddr);
+		kfree(pt[en+i].flags); //free bitmap
 	}
 	
 	en = VADDR_TO_PTEN(as->as_vbase2);
 	for (i=0; i<as->as_npages2; i++){
 		freeppages(pt[en+i].paddr);
+		kfree(pt[en+i].flags);
 	}
 
 	en = VADDR_TO_PTEN((USERSTACK - (SMARTVM_STACKPAGES*PAGE_SIZE)));
 	for (i=0; i<SMARTVM_STACKPAGES; i++){
 		freeppages(pt[en+i].paddr);
+		kfree(pt[en+i].flags);
 	}
 	pt_destroy(pt);
 	kfree(as);
@@ -164,6 +169,13 @@ as_activate(void)
 	spl = splhigh();
 
 	for (i=0; i<NUM_TLB; i++) {
+#if OPT_PAGING
+		/* invalidate the entries */
+		uint32_t ehi, elo;
+		tlb_read(&ehi, &elo, i);
+		if (curproc->pid == (pid_t)((ehi & TLBHI_PID))>>6)
+			continue;
+#endif
 		tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
 	}
 	tlb_inv++;
@@ -259,7 +271,10 @@ as_prepare_load(struct addrspace *as)
 		if (pt[en+i].paddr == 0)
 			return ENOMEM;
 		as_zero_region(pt[en+i].paddr, 1);
-		//pt[en+i].valid = 1;
+		pt[en+i].flags = kmalloc(sizeof(char)); //alloc flags for in memory pages only 
+		if (pt[en+i].flags==NULL)
+			return ENOMEM;
+		pt[en+i].flags[0] = 0;
 	}
 
 	en = VADDR_TO_PTEN(as->as_vbase2);
@@ -269,7 +284,10 @@ as_prepare_load(struct addrspace *as)
 		if (pt[en+i].paddr == 0)
 			return ENOMEM;
 		as_zero_region(pt[en+i].paddr, 1);
-		//pt[en+i].valid = 1;
+		pt[en+i].flags = kmalloc(sizeof(char)); //alloc flags for in memory pages only 
+		if (pt[en+i].flags==NULL)
+			return ENOMEM;
+		pt[en+i].flags[0] = 0;
 	}
 	
 	en = VADDR_TO_PTEN((USERSTACK-(SMARTVM_STACKPAGES*PAGE_SIZE)));
@@ -279,7 +297,10 @@ as_prepare_load(struct addrspace *as)
 		if (pt[en+i].paddr == 0)
 			return ENOMEM;
 		as_zero_region(pt[en+i].paddr, 1);
-		//pt[en+i].valid = 1;
+		pt[en+i].flags = kmalloc(sizeof(char)); //alloc flags for in memory pages only 
+		if (pt[en+i].flags==NULL)
+			return ENOMEM;
+		pt[en+i].flags[0] = 0;
 	}
 
 	return 0;
