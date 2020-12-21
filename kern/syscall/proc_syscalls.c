@@ -86,7 +86,7 @@ sys_fork(struct trapframe* trap_tf, pid_t* retval){
 		return ENOMEM;
 	}
     /* Create an exact copy of the parent address space. as_activate will be called by thread_startup */
-    result = as_copy(curproc->p_addrspace, &proc->p_addrspace);
+    result = as_copy(curproc->p_addrspace, &proc->p_addrspace, proc->pid);
     if (result) {
         proc_destroy(proc);
         return ENOMEM;

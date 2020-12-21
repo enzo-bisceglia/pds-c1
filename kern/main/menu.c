@@ -37,6 +37,7 @@
 #include <clock.h>
 #include <thread.h>
 #include <proc.h>
+#include <current.h>
 #include <vfs.h>
 #include <sfs.h>
 #include <syscall.h>
@@ -91,6 +92,8 @@ cmd_progthread(void *ptr, unsigned long nargs)
 	if (result) {
 		kprintf("Running program %s failed: %s\n", args[0],
 			strerror(result));
+		curproc->status = result;
+		V(curproc->waitsem);
 		return;
 	}
 

@@ -59,11 +59,11 @@ struct addrspace {
         paddr_t as_stackpbase;
 #else
         /* Put stuff here for your VM system */
-        struct pte* page_table;
         vaddr_t as_vbase1; //code segment
         size_t as_npages1;
         vaddr_t as_vbase2; //data segment
         size_t as_npages2;
+        pid_t pid;
         //stack has its address (USERSTACK) and fixed size (SMARTVM_STACKPAGES)
 #endif
 };
@@ -109,8 +109,8 @@ struct addrspace {
  * functions are found in dumbvm.c.
  */
 
-struct addrspace *as_create(void);
-int               as_copy(struct addrspace *src, struct addrspace **ret);
+struct addrspace *as_create(pid_t pid);
+int               as_copy(struct addrspace *src, struct addrspace **ret, pid_t ret_pid);
 void              as_activate(void);
 void              as_deactivate(void);
 void              as_destroy(struct addrspace *);

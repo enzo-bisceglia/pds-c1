@@ -36,10 +36,12 @@
 #include <addrspace.h>
 #include <vm.h>
 #include <proc.h>
+#include "pt.h"
 //#include <coremap.h>
 #include "vmstats.h"
 #include "opt-paging.h"
 
+//#define PT_LENGTH 1048576
 #define SMARTVM_STACKPAGES    18
 /*
  * Note! If OPT_DUMBVM is set, as is the case until you start the VM
@@ -47,9 +49,10 @@
  * used. The cheesy hack versions in dumbvm.c are used instead.
  */
 int tlb_inv = 0;
+struct pt_t* ipt;
 
 struct addrspace *
-as_create(void)
+as_create(pid_t pid)
 {
 	struct addrspace *as;
 
@@ -57,14 +60,11 @@ as_create(void)
 	if (as == NULL) {
 		return NULL;
 	}
-	as->page_table = pt_init();
-	if (as->page_table == NULL) {
-		panic("smartvm: can't initialize page table.");
-	}
 	as->as_vbase1 = 0;
 	as->as_npages1 = 0;
 	as->as_vbase2 = 0;
 	as->as_npages2 = 0;
+	as->pid = pid;
 	/*
 	 * Initialize as needed.
 	 */
@@ -73,48 +73,49 @@ as_create(void)
 }
 
 int
-as_copy(struct addrspace *old, struct addrspace **ret)
+as_copy(struct addrspace *old, struct addrspace **ret, pid_t ret_pid)
 {
 	struct addrspace *newas;
-	
-	newas = as_create();
+	int i, j, res;
+	paddr_t src, dst;
+
+	newas = as_create(ret_pid);
 	if (newas==NULL) {
 		return ENOMEM;
 	}
 #if OPT_SYNCH
-	size_t i;
-	int result, en;
 
 	newas->as_npages1 = old->as_npages1;
 	newas->as_npages2 = old->as_npages2;
 	newas->as_vbase1 = old->as_vbase1;
 	newas->as_vbase2 = old->as_vbase2;
+	
 
-	result = as_prepare_load(newas);
-	if (result){
-		return result;
+	res = as_prepare_load(newas);
+	if (res){
+		return res;
 	}
-	// copy code
-	en = VADDR_TO_PTEN(newas->as_vbase1);
-	for (i=0; i<newas->as_npages1; i++){
-		memcpy((void*)PADDR_TO_KVADDR(newas->page_table[en+i].paddr),
-			(const void*)PADDR_TO_KVADDR(old->page_table[en+i].paddr),
-			PAGE_SIZE);
+	// O(pt_size*pt_size)
+	// acquire ipt_lock
+	j=0;
+	
+	spinlock_acquire(&ipt->ipt_splk);
+	for (i=0; i<ipt->pt_size; i++){
+		if (ipt->v[i].pid == old->pid){ // find all pages belonging to src address space
+			for (; j<ipt->pt_size; j++){ // for each page, find respective one in dst address space
+				if (ipt->v[j].pid == ret_pid && ipt->v[j].vaddr == ipt->v[i].vaddr){
+					src = i*PAGE_SIZE; // index of dst frame
+					dst = j*PAGE_SIZE; // index of src frame
+					memcpy((void*)PADDR_TO_KVADDR(dst),
+							(const void*)PADDR_TO_KVADDR(src),
+							PAGE_SIZE);
+					setXbit(ipt->v[j].flags, PRESENT_BIT, 1);
+					break;
+				}
+			}
+		}
 	}
-	// copy data
-	en = VADDR_TO_PTEN(newas->as_vbase1);
-	for (i=0; i<newas->as_npages1; i++){
-		memcpy((void*)PADDR_TO_KVADDR(newas->page_table[en+i].paddr),
-			(const void*)PADDR_TO_KVADDR(old->page_table[en+i].paddr),
-			PAGE_SIZE);
-	}
-	// copy stack
-	en = VADDR_TO_PTEN((USERSTACK-(SMARTVM_STACKPAGES*PAGE_SIZE)));
-	for (i=0; i<SMARTVM_STACKPAGES; i++){
-		memcpy((void*)PADDR_TO_KVADDR(newas->page_table[en+i].paddr),
-			(const void*)PADDR_TO_KVADDR(old->page_table[en+i].paddr),
-			PAGE_SIZE);
-	}
+	spinlock_release(&ipt->ipt_splk);
 #endif
 	/*
 	 * Write this.
@@ -132,7 +133,20 @@ as_destroy(struct addrspace *as)
 	/*
 	 * Clean up as needed.
 	 */
-	struct pte* pt = as->page_table;
+	int i;
+
+	KASSERT(as->pid>2); // kernel should not be here
+	
+	spinlock_acquire(&ipt->ipt_splk);
+	for (i=0; i<ipt->pt_size; i++){ // clean all curproc-related pages
+		if (ipt->v[i].pid == as->pid){
+			freeppages(i*PAGE_SIZE);
+			ipt->v[i].flags[0] = 0;
+		}
+	}
+	spinlock_release(&ipt->ipt_splk);
+
+	/*struct pte* pt = as->page_table;
 	size_t i, en = VADDR_TO_PTEN(as->as_vbase1);
 	for (i=0; i<as->as_npages1; i++){
 		freeppages(pt[en+i].paddr);
@@ -150,7 +164,7 @@ as_destroy(struct addrspace *as)
 		freeppages(pt[en+i].paddr);
 		kfree(pt[en+i].flags);
 	}
-	pt_destroy(pt);
+	pt_destroy(pt);*/
 	kfree(as);
 }
 
@@ -173,12 +187,12 @@ as_activate(void)
 		/* invalidate the entries */
 		uint32_t ehi, elo;
 		tlb_read(&ehi, &elo, i);
-		if (curproc->pid == (pid_t)((ehi & TLBHI_PID))>>6)
+		
+		if (as->pid == (pid_t)(ehi & TLBHI_PID)>>6) /* entry belongs to current proc ?	*/
 			continue;
-#endif
 		tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
+#endif
 	}
-	tlb_inv++;
 
 	splx(spl);
 }
@@ -260,48 +274,30 @@ as_prepare_load(struct addrspace *as)
 	/*
 	 * Write this.
 	 */
-	size_t i;
-	struct pte* pt = as->page_table;
+	
+	int i, j, ix;
+	int round[3][2] = {
+		{as->as_vbase1, as->as_npages1},
+		{as->as_vbase2, as->as_npages2},
+		{USERSTACK-SMARTVM_STACKPAGES*PAGE_SIZE, SMARTVM_STACKPAGES}
+	};
 
 	//dumbvm_can_sleep();
-	size_t en = VADDR_TO_PTEN(as->as_vbase1);
-	KASSERT(en<PT_LENGTH);
-	for (i=0; i<as->as_npages1; i++){
-		pt[en+i].paddr = getppages(1);
-		if (pt[en+i].paddr == 0)
-			return ENOMEM;
-		as_zero_region(pt[en+i].paddr, 1);
-		pt[en+i].flags = kmalloc(sizeof(char)); //alloc flags for in memory pages only 
-		if (pt[en+i].flags==NULL)
-			return ENOMEM;
-		pt[en+i].flags[0] = 0;
-	}
 
-	en = VADDR_TO_PTEN(as->as_vbase2);
-	KASSERT(en<PT_LENGTH);
-	for (i=0; i<as->as_npages2; i++){
-		pt[en+i].paddr = getppages(1);
-		if (pt[en+i].paddr == 0)
-			return ENOMEM;
-		as_zero_region(pt[en+i].paddr, 1);
-		pt[en+i].flags = kmalloc(sizeof(char)); //alloc flags for in memory pages only 
-		if (pt[en+i].flags==NULL)
-			return ENOMEM;
-		pt[en+i].flags[0] = 0;
+	spinlock_acquire(&ipt->ipt_splk);
+	for (i=0; i<3; i++){
+		for (j=0; j<round[i][1]; j++){
+			paddr_t paddr = getppages(1);
+			if (paddr == 0)
+				return ENOMEM;
+			ix = paddr >> 12;
+			KASSERT(!isSetX(ipt->v[ix].flags, KERNEL_BIT)); // not touching kernel
+			ipt->v[ix].pid = as->pid;
+			ipt->v[ix].vaddr = round[i][0]+j*PAGE_SIZE;
+			as_zero_region(paddr, 1);
+		}
 	}
-	
-	en = VADDR_TO_PTEN((USERSTACK-(SMARTVM_STACKPAGES*PAGE_SIZE)));
-	KASSERT(en<PT_LENGTH);
-	for (i=0; i<SMARTVM_STACKPAGES; i++){
-		pt[en+i].paddr = getppages(1);
-		if (pt[en+i].paddr == 0)
-			return ENOMEM;
-		as_zero_region(pt[en+i].paddr, 1);
-		pt[en+i].flags = kmalloc(sizeof(char)); //alloc flags for in memory pages only 
-		if (pt[en+i].flags==NULL)
-			return ENOMEM;
-		pt[en+i].flags[0] = 0;
-	}
+	spinlock_release(&ipt->ipt_splk);
 
 	return 0;
 }

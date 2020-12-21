@@ -51,7 +51,7 @@
 #include "opt-synch.h"
 #if OPT_SYNCH
 #include <limits.h>
-#define MAX_P 100
+#define MAX_P 200
 #endif
 
 struct pidt_e{

@@ -9,13 +9,8 @@
 #include <mips/tlb.h>
 #include <addrspace.h>
 #include <vm.h> //ram_getsize
-#include <bitmap.h>
-//#include <coremap.h>
+#include <pt.h>
 #include "vmstats.h"
-
-int tlb_faults;
-int tlb_faults_free;
-int tlb_faults_repl;
 
 static struct spinlock stealmem_lock = SPINLOCK_INITIALIZER;
 static struct spinlock freemem_lock = SPINLOCK_INITIALIZER;
@@ -25,6 +20,8 @@ static int tot_frames;
 static int vm_active = 0;
 int before_vm = 0; //declared in vmstats.h
 int should_be_zero = 0; //declared in vmstats.h
+
+struct pt_t* ipt;
 
 static
 int
@@ -56,18 +53,27 @@ vm_bootstrap(void) {
 	 */
 	int i;
 	paddr_t first;
+	struct pte_t* v;
 	tot_frames = ram_getsize()/PAGE_SIZE;
 
 	alloc_size = kmalloc(tot_frames*sizeof(unsigned long));
 	if (alloc_size == NULL){
-		//free_frames = NULL;
 		return;
 	}
+	
+	ipt = pt_init(tot_frames);
+	if (ipt==NULL)
+		panic("smartvm: can't initialize page table.");
+	
 	/* get first available address */
 	first = ram_getfirstfree();
 	
-	for (i=0; i<tot_frames; i++)
+	v=ipt->v;
+	for (i=0; i<ipt->pt_size; i++){
+		if (i<(int)first/PAGE_SIZE)
+			setXbit(v[i].flags, KERNEL_BIT, 1); // entry belongs to kernel
 		alloc_size[i]=0;
+	}
 	/* set all previous frames occupied (by kernel) */
 	alloc_size[0] = first/PAGE_SIZE;
 	
@@ -76,9 +82,6 @@ vm_bootstrap(void) {
 	vm_active = 1;
 	spinlock_release(&freemem_lock);
 
-	tlb_faults = 0;
-	tlb_faults_free = 0;
-	tlb_faults_repl = 0;
     //coremap_bootstrap();
 }
 
@@ -88,9 +91,8 @@ vm_fault(int faulttype, vaddr_t faultaddress) {
 	/*
 	 * Write this.
 	 */
-	vaddr_t vbase1, vtop1, vbase2, vtop2, stackbase, stacktop;
 	paddr_t paddr;
-	int i;
+	int i, ix, res;
 	uint32_t ehi, elo;
 	struct addrspace *as;
 	int spl;
@@ -133,35 +135,33 @@ vm_fault(int faulttype, vaddr_t faultaddress) {
 	KASSERT(as->as_npages1 != 0);
 	KASSERT(as->as_vbase2 != 0);
 	KASSERT(as->as_npages2 != 0);
+	
 	KASSERT((as->as_vbase1 & PAGE_FRAME) == as->as_vbase1);
 	KASSERT((as->as_vbase2 & PAGE_FRAME) == as->as_vbase2);
+	
+	/*
+	 * we're here bc of tlb_miss. (write) Tried to write to a vaddr (can happen ONLY on load or when user does i/o)
+	 * (read) tried to read to a vaddr (can happen during normal execution).
+	 * - tlb miss & page fault -> page not loaded or swapped out
+	 * - tlb miss & page hit -> 2 processes: 1 executing .. cs .. 2 replaces all tlb .. cs again .. 1 has pages in memory but no references in tlb
+	 * - tlb hit & page fault -> should not happen
+	 * - tlb hit & page hit -> should not happen
+	 */
 
-	vbase1 = as->as_vbase1;
-	vtop1 = vbase1 + as->as_npages1 * PAGE_SIZE;
-	vbase2 = as->as_vbase2;
-	vtop2 = vbase2 + as->as_npages2 * PAGE_SIZE;
-	stackbase = USERSTACK - 18/*SMARTVM_STACKPAGES*/ * PAGE_SIZE;
-	stacktop = USERSTACK;
-
-	struct pte* pt = as->page_table;
-	size_t en = VADDR_TO_PTEN(faultaddress);
-
-	if (faultaddress >= vbase1 && faultaddress < vtop1){ /* code segment */
-		if (faulttype == VM_FAULT_READ)  /* It's nok having TLB_FAULT_READ and page not present (for now). */
-			KASSERT(TestBit(pt[en].flags, PRESENT_BIT)==1);
-	}
-	else if (faultaddress >= vbase2 && faultaddress < vtop2){
-		if (faulttype == VM_FAULT_READ)  /* It's nok having TLB_FAULT_READ and page not present (for now). */
-			KASSERT(TestBit(pt[en].flags, PRESENT_BIT)==1);
-	}
-	else if (faultaddress >= stackbase && faultaddress < stacktop){
-		;
+	res = page_walk(faultaddress, curproc->pid, &ix);
+	if (res){ // PAGE FAULT
+		if (ix==-1){
+			panic("page evicted or never allocated.");
+			pf_z++;
+		}
+		setXbit(ipt->v[ix].flags, PRESENT_BIT, 1);
 	}
 	else
-		return EFAULT;
-	paddr = pt[en].paddr;
-	KASSERT(paddr!=0); /* mapping must exist.. now update TLB */
-	
+		tlb_rel++;
+		
+	paddr = ix*PAGE_SIZE;
+
+
 	/* make sure it's page-aligned */
 	KASSERT((paddr & PAGE_FRAME) == paddr);
 	/* Disable interrupts on this CPU while frobbing the TLB. */
@@ -172,11 +172,12 @@ vm_fault(int faulttype, vaddr_t faultaddress) {
 		if (elo & TLBLO_VALID) {
 			continue;
 		}
-		ehi = faultaddress | (TLBHI_PID & (curproc->pid << 6));
+		
+		ehi = faultaddress | (as->pid << 6);
 		/*  DIRTY = entry can be modified in write
-			VALID = entry is a valid mapping (relative process is being executed)
-			GLOBAL = even if there's a pid information in the virtual address, while accessing the tlb, ignore it
-		*/
+		 *	VALID = entry is a valid mapping (relative process is being executed)
+		 *	GLOBAL = 
+		 */
 		elo = paddr | TLBLO_DIRTY | TLBLO_VALID | TLBLO_GLOBAL;
 		DEBUG(DB_VM, "smartvm: 0x%x -> 0x%x\n", faultaddress, paddr);
 		tlb_write(ehi, elo, i);
@@ -218,16 +219,8 @@ getppages(int np){
 	addr = found>=0 ? (paddr_t)found*PAGE_SIZE : 0;
 	should_be_zero+=np;
 	spinlock_release(&freemem_lock);
-	
+
 	return addr;
-	/*if (found>=0){
-		for (i=found; i<found+np; i++)
-			bitmap_mark(free_frames, i);
-		addr = (paddr_t)found*PAGE_SIZE;
-	}
-	else
-		addr = 0;
-	return addr;*/
 	
 }
 
@@ -255,24 +248,43 @@ vaddr_t
 alloc_kpages(unsigned npages) {
     
 	paddr_t pa;
+	int i, ix;
 
 	dumbvm_can_sleep();
 	pa = getppages(npages);
 	if (pa==0) {
 		return 0;
 	}
+
+	// MARK KERNEL
+	if (vm_is_active()) {
+		ix = pa >> 12; // paddr -> ipt_entry
+		spinlock_acquire(&ipt->ipt_splk);
+		for (i=0; i<(int)npages; i++)
+			setXbit(ipt->v[ix+i].flags, KERNEL_BIT, 1);
+		spinlock_release(&ipt->ipt_splk);
+	}
+	
 	return PADDR_TO_KVADDR(pa);
 }
 
 void
 free_kpages(vaddr_t addr){
 
+	int i, ix, np;
 	if (vm_is_active()) {
 		paddr_t paddr = addr - MIPS_KSEG0;
 		long first = paddr/PAGE_SIZE;
 		KASSERT(alloc_size!=NULL);
     	KASSERT(tot_frames>first);
+		np = alloc_size[first];
 		freeppages(paddr/*, alloc_size[first]*/);
+		// UNMARK KERNEL
+		ix = paddr >> 12;
+		spinlock_acquire(&ipt->ipt_splk);
+		for (i=0; i<np; i++)
+			setXbit(ipt->v[ix+i].flags, KERNEL_BIT, 0);
+		spinlock_release(&ipt->ipt_splk);
 	}
 }
 

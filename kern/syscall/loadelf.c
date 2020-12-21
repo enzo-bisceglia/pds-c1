@@ -63,10 +63,9 @@
 #include "vmstats.h"
 
 #if OPT_PAGING
-
 int pf_disk = 0;
 int pf_elf = 0;
-#else
+
 static
 int
 load_page(struct addrspace *as, struct vnode *v,
@@ -131,7 +130,7 @@ load_page(struct addrspace *as, struct vnode *v,
 
 }
 
-
+#else
 /*
  * Load a segment at virtual address VADDR. The segment in memory
  * extends from VADDR up to (but not including) VADDR+MEMSIZE. The
@@ -366,14 +365,11 @@ load_elf(struct vnode *v, vaddr_t *entrypoint)
 		size_t i;
 		
 		for (i=0; i<=ph.p_filesz; i+=PAGE_SIZE){
-			result = page_write(as, v, ph.p_offset+i, ph.p_vaddr+i,
-					i+PAGE_SIZE>ph.p_filesz ? ph.p_filesz-i : PAGE_SIZE, ph.p_flags & PF_X);
-			
-			/*result = load_page(as, v, ph.p_offset+i, ph.p_vaddr+i,
-					PAGE_SIZE, i+PAGE_SIZE>ph.p_filesz ? ph.p_filesz-i : PAGE_SIZE, ph.p_flags & PF_X);*/
+	
+			result = load_page(as, v, ph.p_offset+i, ph.p_vaddr+i,
+					PAGE_SIZE, i+PAGE_SIZE>ph.p_filesz ? ph.p_filesz-i : PAGE_SIZE, ph.p_flags & PF_X);
 			if (result)
 				return result;
-			SetBit(as->page_table[VADDR_TO_PTEN((ph.p_vaddr+i))].flags, PRESENT_BIT);
 			pf_disk++;
 			pf_elf++;
 		}
