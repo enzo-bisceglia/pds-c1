@@ -1,92 +1,130 @@
-#include "swapfile.h"
+#include <types.h>
+#include <kern/errno.h>
 #include <lib.h>
+#include <spl.h>
+#include <cpu.h>
+#include <spinlock.h>
+#include <proc.h>
+#include <current.h>
+#include <mips/tlb.h>
+
 #include <vm.h>
+#include <uio.h>
+#include <vnode.h>
+#include <elf.h>
+#include <vfs.h>
+#include "PageTable.h"
+#include "swapfile.h"
 
 static swapfile *sw;
+static struct spinlock swapfile_lock;
+unsigned int sw_length;
+struct vnode* swapstore;
+int fd;
+static const char swapfilename[] = "emu0:SWAPFILE";
 
 int swapfile_init(int length){
     int i;
-    sw = (swapfile *) kmalloc(sizeof(swapfile));
+    char path[sizeof(swapfilename)];
+
+    sw = (swapfile *) kmalloc(sizeof(swapfile)*length);
     if(sw==NULL){
         return 0;
     }
-    sw->v_pages = kmalloc(sizeof(vaddr_t)*length);
-    if(sw->v_pages==NULL) return 0;
-
-    sw->p_pages = kmalloc(sizeof(paddr_t)*length);
-    if(sw->p_pages==NULL) return 0;
-
-    sw->pids = kmalloc(sizeof(pid_t)*length);
-    if(sw->pids==NULL) return 0;
-
-    sw -> control = kmalloc(sizeof(uint16_t)*length);
-    if(sw ->control==NULL) return 0;
-
-
+    
     for(i=0;i<length;i++){
-        sw ->control[i] = 0;
-	    sw->pids[i] = -1;
-	    sw->v_pages[i] = 0x0;
-        sw->p_pages[i] = alloc_kpages(1);
+        sw[i].control = 0;
+	    sw[i].pids = -1;
+	    sw[i].v_pages = 0x0;
+        //sw[i].p_pages = 0;
+        //sw[i].mem = kmalloc(PAGE_SIZE*sizeof(char));
     }
-    sw -> pbase = ram_getfirst() & PAGE_FRAME;
-    sw -> length = length;
-    spinlock_init(&sw->pagetable_lock);
+    
+    sw_length = length;
+    strcpy(path, swapfilename);
+    fd = vfs_open(path, O_RDWR | O_CREAT ,0, &swapstore); //ricordati che il file è da dimensionare a 9MB
+    if (fd){
+        kprintf("swap: error %d opening swapfile %s\n", fd, swapfilename);
+        kprintf("swap: Please create swapfile/swapdisk\n");
+        panic("swapfile_init can't open swapfile");
+    }
+    spinlock_init(&swapfile_lock);
     return 1;
 }
-//swap-out
-int swapfile_addentry(vaddr_t vaddr,paddr_t paddr,pid_t pid,uint16_t flag){
-    unsigned int frame_index;
+/*
+unsigned int swapfile_getfreefirst(){
     unsigned int i;
-    
-    //struct addrspace* as;
+    unsigned int frame_index;
 
-    if (vaddr>MIPS_KSEG0) return -1;
-    //vaddr_t relative_vaddr = vaddr & PAGE_FRAME;
-    //paddr &= PAGE_FRAME;
-    //paddr = paddr - sw->pbase;
-    //unsigned int frame_index = (int) paddr/PAGE_SIZE;
-
-    //cerco il primo libero
-    for (i=0; i<sw->length; i++){
-        if(sw->pids[i]==-1){
+    for(i=0; i<sw_length; i++){
+        if(sw[i].pids==-1){
             frame_index = i;
             break;
         }
     }
-    KASSERT(frame_index < sw->length);
-    spinlock_acquire(&sw->pagetable_lock);
-    memcpy((void *)sw->p_pages[frame_index], (void *)vaddr, PAGE_SIZE);
-    sw -> v_pages[frame_index] = vaddr;
-    sw -> p_pages[frame_index] = paddr;
-    sw ->control[frame_index] =flag;
-    sw->pids[frame_index] = pid;
-    spinlock_release(&sw->pagetable_lock);
+
+    return frame_index;
+}*/
+
+//swap-out
+int swapfile_swapout(vaddr_t vaddr,paddr_t paddr,pid_t pid, uint16_t flag){
+    unsigned int frame_index,i, err;
+    struct iovec iov;
+    struct uio ku;
+
+    if (vaddr>MIPS_KSEG0) return -1;
+
+    //CERCO IL PRIMO FRAME LIBERO IN CUI POTER FARE SWAPOUT    
+    for(i=0; i<sw_length; i++){
+        if(sw[i].pids==-1){
+            frame_index = i;
+            break;
+        }
+    }
+
+    //FACCIO SWAPOUT
+    uio_kinit(&iov, &ku, (void *)PADDR_TO_KVADDR(paddr), PAGE_SIZE, frame_index*PAGE_SIZE, UIO_WRITE);
+    err = VOP_WRITE(swapstore, &ku);
+    if (err) {
+			panic(": Write error: %s\n",strerror(err));
+	}
+    sw[frame_index].v_pages = vaddr;
+    sw[frame_index].control =flag;
+    sw[frame_index].pids = pid;
+
+    pagetable_remove_entry(paddr/PAGE_SIZE); 
     return 1;
 }
 
 //swap-in
-int swapfile_getpaddr(vaddr_t vaddr, paddr_t *paddr,pid_t *pid,uint16_t *flag){
+int swapfile_swapin(vaddr_t vaddr, paddr_t *paddr,pid_t *pid, struct addrspace *as){
+    
     unsigned int i;
-    //vaddr_t relative_vaddr = vaddr & PAGE_FRAME;
-    spinlock_acquire(&sw->pagetable_lock);
+    int indexR;
     paddr_t p =-1;
-    for(i=0;i<sw->length;i++){
-        if(sw->v_pages[i]==vaddr && sw -> pids[i]==*pid){
-            //p = (paddr_t) (i * PAGE_SIZE) + sw->pbase;
-            p = sw->p_pages[i];	
-            memcpy((void*)vaddr, (void *)sw->p_pages[i],PAGE_SIZE);
-            break;
+    struct iovec iov;
+    struct uio ku;
+
+    for(i=0;i<sw_length;i++){
+        if(sw[i].v_pages==vaddr && sw[i].pids==*pid){
+            p = getppages(1);
+            //non c'è spazio
+            if (p==0 || as->count_proc>=MAX_PROC_PT){
+                indexR = pagetable_replacement(*pid);
+                swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, *pid, pagetable_getControlByIndex(indexR)); 
+                pagetable_remove_entry(indexR);
+                bzero((void*)(indexR*PAGE_SIZE), 1);
+                uio_kinit(&iov, &ku, (void *)PADDR_TO_KVADDR(indexR*PAGE_SIZE), PAGE_SIZE, i*PAGE_SIZE, UIO_READ);
+                VOP_READ(swapstore, &ku); 
+                pagetable_addentry(vaddr, indexR*PAGE_SIZE, *pid, sw[*paddr/PAGE_SIZE].control);
+                return 1;
+            }
+            uio_kinit(&iov, &ku, (void *)PADDR_TO_KVADDR(p), PAGE_SIZE, i*PAGE_SIZE, UIO_READ);
+            VOP_READ(swapstore, &ku);  
+            pagetable_addentry(vaddr, p, *pid, sw[i].control);
+            sw[i].pids = 0;
+          
         }
     }
-    if((int) p == -1) {
-    	spinlock_release(&sw->pagetable_lock);
-	return 0;
-	}
-    *paddr = p;
-    *pid = sw->pids[i];
-    *flag = sw->control[i];
-    spinlock_release(&sw->pagetable_lock);
-    (void) paddr;
-    return 1;
+    return 0;
 }

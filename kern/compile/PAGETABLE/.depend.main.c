@@ -8,6 +8,7 @@ main.o: ../../main/main.c ../../include/types.h \
  includelinks/machine/spinlock.h ../../include/threadlist.h \
  includelinks/machine/thread.h ../../include/setjmp.h \
  includelinks/kern/machine/setjmp.h ../../include/proc.h \
+ ../../include/limits.h ../../include/kern/limits.h \
  ../../include/current.h includelinks/machine/current.h \
  ../../include/synch.h ../../include/vm.h ../../include/addrspace.h \
  opt-dumbvm.h ../../include/elf.h includelinks/machine/elf.h \

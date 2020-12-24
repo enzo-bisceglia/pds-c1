@@ -112,6 +112,7 @@ syscall(struct trapframe *tf)
 
 	    /* Add stuff here */
 #if OPT_SYSCALLS
+
 	    case SYS_write:
 	        retval = sys_write((int)tf->tf_a0,
 				(userptr_t)tf->tf_a1,

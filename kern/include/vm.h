@@ -47,6 +47,8 @@
 #define DUMBVM_STACKPAGES    36
 
 #define MAX_PROC_PT 3                /* (successivamente 36 o >36)Massimo allocabile per ogni processo nella PT */
+#define SWAP_SIZE 576                /* dimensione dello swapfile: 9MB/4kB */
+
 /* Initialization function */
 void vm_bootstrap(void);
 

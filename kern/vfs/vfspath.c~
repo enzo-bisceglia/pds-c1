@@ -41,7 +41,78 @@
 
 
 /* Does most of the work for open(). */
+int
+vfs_open(char *path, int openflags, struct vnode **ret)
+{
+	int how;
+	int result;
+	int canwrite;
+	struct vnode *vn = NULL;
 
+	how = openflags & O_ACCMODE;
+
+	switch (how) {
+	    case O_RDONLY:
+		canwrite=0;
+		break;
+	    case O_WRONLY:
+	    case O_RDWR:
+		canwrite=1;
+		break;
+	    default:
+		return EINVAL;
+	}
+
+	if (openflags & O_CREAT) {
+		char name[NAME_MAX+1];
+		struct vnode *dir;
+		int excl = (openflags & O_EXCL)!=0;
+
+		result = vfs_lookparent(path, &dir, name, sizeof(name));
+		if (result) {
+			return result;
+		}
+
+		result = VOP_CREAT(dir, name, excl, &vn);
+
+		VOP_DECREF(dir);
+	}
+	else {
+		result = vfs_lookup(path, &vn);
+	}
+
+	if (result) {
+		return result;
+	}
+
+	KASSERT(vn != NULL);
+
+	result = VOP_OPEN(vn, openflags);
+	if (result) {
+		VOP_DECREF(vn);
+		return result;
+	}
+	VOP_INCOPEN(vn);
+	if (openflags & O_TRUNC) {
+		if (canwrite==0) {
+			result = EINVAL;
+		}
+		else {
+			result = VOP_TRUNCATE(vn, 0);
+		}
+		if (result) {
+			VOP_DECOPEN(vn);
+			VOP_DECREF(vn);
+			return result;
+		}
+	}
+
+	*ret = vn;
+
+	return 0;
+}
+
+/*
 int
 vfs_open(char *path, int openflags, mode_t mode, struct vnode **ret)
 {
@@ -94,8 +165,6 @@ vfs_open(char *path, int openflags, mode_t mode, struct vnode **ret)
 		return result;
 	}
 
-	
-
 	if (openflags & O_TRUNC) {
 		if (canwrite==0) {
 			result = EINVAL;
@@ -104,7 +173,6 @@ vfs_open(char *path, int openflags, mode_t mode, struct vnode **ret)
 			result = VOP_TRUNCATE(vn, 0);
 		}
 		if (result) {
-			
 			VOP_DECREF(vn);
 			return result;
 		}
@@ -114,77 +182,7 @@ vfs_open(char *path, int openflags, mode_t mode, struct vnode **ret)
 
 	return 0;
 }
-
-/*
-int
-my_vfs_open(char *path, int openflags, struct vnode **ret)
-{
-	int how;
-	int result;
-	int canwrite;
-	struct vnode *vn = NULL;
-
-	how = openflags & O_ACCMODE;
-
-	switch (how) {
-	    case O_RDONLY:
-		canwrite=0;
-		break;
-	    case O_WRONLY:
-	    case O_RDWR:
-		canwrite=1;
-		break;
-	    default:
-		return EINVAL;
-	}
-
-	if (openflags & O_CREAT) {
-		char name[NAME_MAX+1];
-		struct vnode *dir;
-		int excl = (openflags & O_EXCL)!=0;
-
-		result = vfs_lookparent(path, &dir, name, sizeof(name));
-		if (result) {
-			return result;
-		}
-
-		result = VOP_CREAT(dir, name, excl, &vn);
-
-		VOP_DECREF(dir);
-	}
-	else {
-		result = vfs_lookup(path, &vn);
-	}
-
-	if (result) {
-		return result;
-	}
-
-	KASSERT(vn != NULL);
-
-	result = VOP_EACHOPEN(vn, openflags);
-	if (result) {
-		VOP_DECREF(vn);
-		return result;
-	}
-
-	if (openflags & O_TRUNC) {
-		if (canwrite==0) {
-			result = EINVAL;
-		}
-		else {
-			result = VOP_TRUNCATE(vn, 0);
-		}
-		if (result) {
-			VOP_DECREF(vn);
-			return result;
-		}
-	}
-
-	*ret = vn;
-
-	return 0;
-}*/
+*/
 
 /* Does most of the work for close(). */
 void

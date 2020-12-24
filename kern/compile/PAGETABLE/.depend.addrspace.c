@@ -10,4 +10,5 @@ addrspace.o: ../../vm/addrspace.c ../../include/types.h \
  ../../include/array.h ../../include/threadlist.h \
  includelinks/machine/thread.h ../../include/setjmp.h \
  includelinks/kern/machine/setjmp.h ../../include/proc.h \
- ../../include/spl.h includelinks/mips/tlb.h ../../include/vfs.h
+ ../../include/limits.h ../../include/kern/limits.h ../../include/spl.h \
+ includelinks/mips/tlb.h ../../include/vfs.h

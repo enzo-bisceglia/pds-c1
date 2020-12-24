@@ -50,6 +50,7 @@ struct stat;
  */
 struct vnode {
 	int vn_refcount;                /* Reference count */
+
 	struct spinlock vn_countlock;   /* Lock for vn_refcount */
 
 	struct fs *vn_fs;               /* Filesystem vnode belongs to */
@@ -265,6 +266,7 @@ void vnode_decref(struct vnode *);
 
 #define VOP_INCREF(vn) 			vnode_incref(vn)
 #define VOP_DECREF(vn) 			vnode_decref(vn)
+
 
 /*
  * Vnode initialization (intended for use by filesystem code)

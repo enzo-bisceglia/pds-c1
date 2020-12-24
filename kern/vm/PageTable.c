@@ -215,3 +215,7 @@ paddr_t pagetable_getPaddrByIndex(int index){
 pid_t pagetable_getPidByIndex(int index){
     return pg->pids[index];
 }
+
+uint16_t pagetable_getControlByIndex(int index){
+    return pg->control[index];
+}

@@ -38,6 +38,7 @@
 
 #include <spinlock.h>
 #include <types.h>
+#include <limits.h>
 
 struct addrspace;
 struct thread;
@@ -60,6 +61,8 @@ struct vnode;
  * thread_switch needs to be able to fetch the current address space
  * without sleeping.
  */
+
+#define OPT_FILE 1
 struct proc {
 	char *p_name;			/* Name of this process */
 	struct spinlock p_lock;		/* Lock for this structure */
@@ -73,6 +76,10 @@ struct proc {
 
 	pid_t pid;
 	/* add more material here as needed */
+#if OPT_FILE
+	struct openfile* fileTable[OPEN_MAX];
+#endif
+	
 };
 
 pid_t proc_search_pid(struct proc* p);

@@ -67,6 +67,7 @@ runprogram(char *progname)
 
 	/* Open the file. */
 	result = vfs_open(progname, O_RDONLY, 0, &v);
+	
 	if (result) {
 		return result;
 	}

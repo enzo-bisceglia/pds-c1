@@ -101,8 +101,8 @@ int vfs_lookparent(char *path, struct vnode **result,
  *                 (See vfspath.c for a discussion of why.)
  */
 
-int vfs_open(char *path, int openflags, mode_t mode, struct vnode **ret);
-//int my_vfs_open(char *path, int openflags, struct vnode **ret);
+//int vfs_open(char *path, int openflags, mode_t mode, struct vnode **ret);
+int vfs_open(char *path, int openflags, struct vnode **ret);
 void vfs_close(struct vnode *vn);
 int vfs_readlink(char *path, struct uio *data);
 int vfs_symlink(const char *contents, char *path);

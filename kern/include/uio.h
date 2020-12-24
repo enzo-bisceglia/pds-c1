@@ -70,6 +70,7 @@ enum uio_seg {
         UIO_SYSSPACE,			/* Kernel. */
 };
 
+
 struct uio {
 	struct iovec     *uio_iov;	/* Data blocks */
 	unsigned          uio_iovcnt;	/* Number of iovecs */
@@ -138,5 +139,6 @@ int uiomovezeros(size_t len, struct uio *uio);
 void uio_kinit(struct iovec *, struct uio *,
 	       void *kbuf, size_t len, off_t pos, enum uio_rw rw);
 
+//void mk_kuio (struct uio*, void* kbuf, size_t len, off_t pos, enum uio_rw rw);
 
 #endif /* _UIO_H_ */

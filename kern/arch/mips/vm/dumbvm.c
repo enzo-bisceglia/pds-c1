@@ -102,6 +102,7 @@ vm_bootstrap(void)
 {
   int i;
   int l;
+  
 
   nRamFrames = ((int)ram_getsize())/PAGE_SIZE;  
   /* alloc freeRamFrame and allocSize */  
@@ -125,12 +126,10 @@ vm_bootstrap(void)
   if(!pagetable_init(l)){
 	panic("Page table allocation fails\n");
   }
-
-  if(!swapfile_init(1)){
+  
+  if(!swapfile_init(SWAP_SIZE)){
 	  panic("Swap table allocation fails\n");
   }
-
-
 }
 
 /*
@@ -397,26 +396,19 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 	else if(result<0) // l'indirizzo passato non era nel range valido della pagetable
 		 return EFAULT;
 
-	else if(swapfile_getpaddr(faultaddress,&p_temp,&pid,&flag)){
-		//tento lo swap-in
+	else if(swapfile_swapin(faultaddress,&p_temp,&pid, as)){
 		paddr = p_temp;
 	}
 
 	else if (faultaddress >= vbase1 && faultaddress < vtop1) { // se vero siamo in segmento di codice
 		paddr = getppages(1);
-
 		//Domenico -- GESTIONE PAGE REPLACEMENT
-		as->count_proc++; //aggiusta il contatore va azzerato da qualche parte
+		as->count_proc++;
 		if (paddr==0 || as->count_proc>=MAX_PROC_PT){
 			//non è stato possibile aggiungere una nuova entry nella pagetable
-			//result = pagetable_replacement(as->ph1.p_vaddr+(faultaddress-vbase1),paddr,pid,flag);
 			indexR = pagetable_replacement(pid);
 			//metti una condizione di controllo errore
-			
-			swapfile_addentry(pagetable_getVaddrByIndex(indexR), pagetable_getPaddrByIndex(indexR), pagetable_getPidByIndex(indexR), flag);
-			
-			
-			pagetable_remove_entry(indexR);
+			swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getControlByIndex(indexR));
 			as->count_proc--;
 		}
 		//-------------------------------------------
@@ -468,9 +460,7 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 			//metti una condizione di controllo errore
 
 			//swap-out
-			swapfile_addentry(pagetable_getVaddrByIndex(indexR), pagetable_getPaddrByIndex(indexR), pagetable_getPidByIndex(indexR), flag);
-
-			pagetable_remove_entry(indexR);
+			swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getControlByIndex(indexR));
 			as->count_proc--;
 		}
 		//-------------------------------------------
@@ -501,6 +491,21 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 
 	else if (faultaddress >= stackbase && faultaddress < stacktop) {//se falso tutto quello di prima sono in stack
 		paddr = getppages(1);
+
+		//Domenico -- GESTIONE PAGE REPLACEMENT
+		as->count_proc++; //ricorda che questo lo devi decrementare da qualche parte
+		if (paddr==0 || as->count_proc>=MAX_PROC_PT){
+			//non è stato possibile aggiungere una nuova entry nella pagetable
+			//result = pagetable_replacement(as->ph2.p_vaddr+(faultaddress-vbase2),paddr,pid,flag);
+			indexR = pagetable_replacement(pid); //più che result chiama replacement_index
+			
+			//metti una condizione di controllo errore
+
+			//swap-out
+			swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getControlByIndex(indexR));
+			as->count_proc--;
+		}
+		//-------------------------------------------
 		paddr &= PAGE_FRAME;
 		as_zero_region(paddr, 1);
 		flag |= (TLBLO_VALID | TLBLO_DIRTY) >> 9;
@@ -542,10 +547,4 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 	splx(spl);
 	return EFAULT;
 }
-
-
-
-
-
-
 #endif

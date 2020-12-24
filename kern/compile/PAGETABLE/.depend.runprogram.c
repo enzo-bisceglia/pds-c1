@@ -3,7 +3,8 @@ runprogram.o: ../../syscall/runprogram.c ../../include/types.h \
  includelinks/machine/types.h ../../include/kern/errno.h \
  ../../include/kern/fcntl.h ../../include/lib.h ../../include/cdefs.h \
  opt-noasserts.h ../../include/proc.h ../../include/spinlock.h \
- includelinks/machine/spinlock.h ../../include/current.h \
+ includelinks/machine/spinlock.h ../../include/limits.h \
+ ../../include/kern/limits.h ../../include/current.h \
  includelinks/machine/current.h ../../include/thread.h \
  ../../include/array.h ../../include/threadlist.h \
  includelinks/machine/thread.h ../../include/setjmp.h \
