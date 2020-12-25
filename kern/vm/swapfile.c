@@ -36,8 +36,6 @@ int swapfile_init(int length){
         sw[i].control = 0;
 	    sw[i].pids = -1;
 	    sw[i].v_pages = 0x0;
-        //sw[i].p_pages = 0;
-        //sw[i].mem = kmalloc(PAGE_SIZE*sizeof(char));
     }
     
     sw_length = length;
@@ -51,22 +49,7 @@ int swapfile_init(int length){
     spinlock_init(&swapfile_lock);
     return 1;
 }
-/*
-unsigned int swapfile_getfreefirst(){
-    unsigned int i;
-    unsigned int frame_index;
 
-    for(i=0; i<sw_length; i++){
-        if(sw[i].pids==-1){
-            frame_index = i;
-            break;
-        }
-    }
-
-    return frame_index;
-}*/
-
-//swap-out
 int swapfile_swapout(vaddr_t vaddr,paddr_t paddr,pid_t pid, uint16_t flag){
     unsigned int frame_index,i, err;
     struct iovec iov;
@@ -96,7 +79,6 @@ int swapfile_swapout(vaddr_t vaddr,paddr_t paddr,pid_t pid, uint16_t flag){
     return 1;
 }
 
-//swap-in
 int swapfile_swapin(vaddr_t vaddr, paddr_t *paddr,pid_t *pid, struct addrspace *as){
     
     unsigned int i;
@@ -117,8 +99,10 @@ int swapfile_swapin(vaddr_t vaddr, paddr_t *paddr,pid_t *pid, struct addrspace *
                 uio_kinit(&iov, &ku, (void *)PADDR_TO_KVADDR(indexR*PAGE_SIZE), PAGE_SIZE, i*PAGE_SIZE, UIO_READ);
                 VOP_READ(swapstore, &ku); 
                 pagetable_addentry(vaddr, indexR*PAGE_SIZE, *pid, sw[*paddr/PAGE_SIZE].control);
+                *paddr = indexR*PAGE_SIZE;
                 return 1;
             }
+            *paddr = p;
             uio_kinit(&iov, &ku, (void *)PADDR_TO_KVADDR(p), PAGE_SIZE, i*PAGE_SIZE, UIO_READ);
             VOP_READ(swapstore, &ku);  
             pagetable_addentry(vaddr, p, *pid, sw[i].control);

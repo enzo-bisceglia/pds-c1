@@ -62,7 +62,7 @@ int pagetable_addentry(vaddr_t vaddr,paddr_t paddr,pid_t pid,uint16_t flag){
     //se riesco ad aggiungere una entry alla pagetable
     //allora devo incrementare il contatore old_count
     //per tutti i processi  con lo stesso PID
-    pg->old_count[frame_index]+=1;
+    pg->old_count[frame_index]=0;
     
     for (i=0; i< pg->length; i++){
         if(pg->pids[i]==pid && i!=frame_index){
