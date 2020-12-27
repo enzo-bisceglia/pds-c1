@@ -14,7 +14,6 @@
 #include <mips/tlb.h>
 #include <addrspace.h>
 #include <vm.h>
-#include <stdio.h>
 
 
 

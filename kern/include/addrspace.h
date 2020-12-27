@@ -53,24 +53,21 @@
 
 struct addrspace {
 #if OPT_PAGETABLE
-        vaddr_t as_vbase1;
-	int code_read_complete;
-	Elf_Phdr ph1;
-        size_t as_npages1;
 
+        vaddr_t as_vbase1;
+        size_t as_npages1;
         vaddr_t as_vbase2;
-	Elf_Phdr ph2;
         size_t as_npages2;
         paddr_t as_stackpbase;
-	int data_read_complete;
 
-        struct vnode *v; 
-        Elf_Ehdr eh;
+        off_t code_offset; // code offset within elf file
+        uint32_t code_resid;
+        off_t data_offset; // data offset within elf file
+        uint32_t data_resid;
+        struct vnode *v;   // file descriptor
 
         /* Put stuff here for your VM system */
-        int count_proc; //variabile che mi indica quante entry di questo proesso carico in PT
-
-
+        int count_proc; //variabile che mi indica quante pagine di questo processo carico in PT
 #endif
 };
 
@@ -114,7 +111,7 @@ struct addrspace {
  * Note that when using dumbvm, addrspace.c is not used and these
  * functions are found in dumbvm.c.
  */
-#define VADDR_SIZE 1048576
+
 struct addrspace *as_create(void);
 int               as_copy(struct addrspace *src, struct addrspace **ret);
 void              as_activate(void);
@@ -122,7 +119,9 @@ void              as_deactivate(void);
 void              as_destroy(struct addrspace *);
 
 int               as_define_region(struct addrspace *as,
-                                   Elf_Phdr ph,
+                                   vaddr_t vaddr,
+                                   size_t sz,
+                                   off_t offset,
                                    int readable,
                                    int writeable,
                                    int executable);
@@ -138,7 +137,7 @@ void as_zero_region(paddr_t paddr, unsigned npages);
  *               in the space pointed to by ENTRYPOINT.
  */
 
-int load_elf(struct vnode *v, vaddr_t *entrypoint,  Elf_Ehdr *eh_ret);
+int load_elf(struct vnode *v, vaddr_t *entrypoint);
 
 
 #endif /* _ADDRSPACE_H_ */

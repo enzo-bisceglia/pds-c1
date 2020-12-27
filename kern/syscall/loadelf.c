@@ -138,7 +138,7 @@ load_segment(struct addrspace *as, struct vnode *v,
  * Returns the entry point (initial PC) for the program in ENTRYPOINT.
  */
 int
-load_elf(struct vnode *v, vaddr_t *entrypoint,  Elf_Ehdr *eh_ret)
+load_elf(struct vnode *v, vaddr_t *entrypoint)
 {
 	Elf_Ehdr eh;   /* Executable header */
 	Elf_Phdr ph;   /* "Program header" = segment header */
@@ -148,10 +148,6 @@ load_elf(struct vnode *v, vaddr_t *entrypoint,  Elf_Ehdr *eh_ret)
 	struct addrspace *as;
 
 	as = proc_getas();
-
-	
-
-
 	
 	/*
 	 * Read the executable header from offset 0 in the file.
@@ -208,8 +204,6 @@ load_elf(struct vnode *v, vaddr_t *entrypoint,  Elf_Ehdr *eh_ret)
 	 * to find where the phdr starts.
 	 */
 
-	*eh_ret = eh;
-
 
 	for (i=0; i<eh.e_phnum; i++) {
 		off_t offset = eh.e_phoff + i*eh.e_phentsize;
@@ -238,7 +232,7 @@ load_elf(struct vnode *v, vaddr_t *entrypoint,  Elf_Ehdr *eh_ret)
 		}
 
 		result = as_define_region(as,
-					  ph,
+					  ph.p_vaddr, ph.p_memsz, ph.p_offset, /* current segment (code/data) offset within the file */
 					  ph.p_flags & PF_R,
 					  ph.p_flags & PF_W,
 					  ph.p_flags & PF_X);
@@ -252,13 +246,13 @@ load_elf(struct vnode *v, vaddr_t *entrypoint,  Elf_Ehdr *eh_ret)
 		return result;
 	}
 
-
-
 	/*
 	 * Now actually load each segment.
 	 */
 
-	/*for (i=0; i<eh.e_phnum; i++) {
+/*
+	for (i=0; i<eh.e_phnum; i++) {
+		
 		off_t offset = eh.e_phoff + i*eh.e_phentsize;
 		uio_kinit(&iov, &ku, &ph, sizeof(ph), offset, UIO_READ);
 
@@ -283,23 +277,21 @@ load_elf(struct vnode *v, vaddr_t *entrypoint,  Elf_Ehdr *eh_ret)
 				ph.p_type);
 			return ENOEXEC;
 		}
-
+		
 		result = load_segment(as, v, ph.p_offset, ph.p_vaddr,
 				      ph.p_memsz, ph.p_filesz,
 				      ph.p_flags & PF_X);
+					  
 		if (result) {
 			return result;
 		}
-	}*/
+	}
+*/
 
 	result = as_complete_load(as);
 	if (result) {
 		return result;
 	}
-
-
-
-	(void) eh_ret;
 
 	*entrypoint = eh.e_entry;
 

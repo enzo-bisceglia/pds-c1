@@ -37,6 +37,7 @@
 #include <mips/tlb.h>
 #include <vfs.h>
 #include <current.h>
+
 struct addrspace *
 as_create(void)
 {
@@ -52,10 +53,8 @@ as_create(void)
 
 	as->as_npages2 = 0;
 	as->as_stackpbase = 0;
-	as->code_read_complete=0;
-	as->data_read_complete=0;
+	as->count_proc = 0;
 
-	as->count_proc=0;
 	return as;
 }
 
@@ -73,7 +72,7 @@ as_activate(void)
 	struct addrspace *as;
 	uint32_t ehi,elo;
 	pid_t pid = curproc->pid;
-	(void) pid;
+
 	as = proc_getas();
 	if (as == NULL) {
 		return;
@@ -85,7 +84,8 @@ as_activate(void)
 	for (i=0; i<NUM_TLB; i++) {
 		tlb_read(&ehi, &elo, i);
 		pid_t entry_pid = ehi & 0xfff;
-		if( entry_pid!=pid )tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
+		if( entry_pid!=pid )
+			tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
 	}
 
 	splx(spl);
@@ -98,13 +98,13 @@ as_deactivate(void)
 }
 
 int
-as_define_region(struct addrspace *as, Elf_Phdr ph,
+as_define_region(struct addrspace *as, vaddr_t vaddr, size_t sz, off_t offset,
 		 int readable, int writeable, int executable)
 {
 	size_t npages;
-	size_t sz = ph.p_memsz;
+
 	dumbvm_can_sleep();
-	vaddr_t vaddr = ph.p_vaddr;
+	
 	/* Align the region. First, the base... */
 	sz += vaddr & ~(vaddr_t)PAGE_FRAME;
 	vaddr &= PAGE_FRAME;
@@ -120,17 +120,18 @@ as_define_region(struct addrspace *as, Elf_Phdr ph,
 	(void)executable;
 
 	if (as->as_vbase1 == 0) {
-
 		as->as_vbase1 = vaddr;
 		as->as_npages1 = npages;
-		as -> ph1 = ph;
+		as->code_offset = offset;
+		as->code_resid = npages * PAGE_SIZE;
 		return 0;
 	}
 
 	if (as->as_vbase2 == 0) {
 		as->as_vbase2 = vaddr;
 		as->as_npages2 = npages;
-		as -> ph2 = ph;
+		as->data_offset = offset;
+		as->data_resid = npages * PAGE_SIZE;
 		return 0;
 	}
 
@@ -145,9 +146,6 @@ as_define_region(struct addrspace *as, Elf_Phdr ph,
 int
 as_prepare_load(struct addrspace *as)
 {
-
-
-
 
 	#if OPT_PAGETABLE
 	(void) as;

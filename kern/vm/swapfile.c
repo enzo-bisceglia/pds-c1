@@ -21,6 +21,7 @@ static struct spinlock swapfile_lock;
 unsigned int sw_length;
 struct vnode* swapstore;
 int fd;
+
 static const char swapfilename[] = "emu0:SWAPFILE";
 
 int swapfile_init(int length){
@@ -29,7 +30,7 @@ int swapfile_init(int length){
 
     sw = (swapfile *) kmalloc(sizeof(swapfile)*length);
     if(sw==NULL){
-        return 0;
+        return 1;
     }
     
     for(i=0;i<length;i++){
@@ -47,7 +48,7 @@ int swapfile_init(int length){
         panic("swapfile_init can't open swapfile");
     }
     spinlock_init(&swapfile_lock);
-    return 1;
+    return 0;
 }
 
 int swapfile_swapout(vaddr_t vaddr,paddr_t paddr,pid_t pid, uint16_t flag){

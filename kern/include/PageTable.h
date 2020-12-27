@@ -8,28 +8,46 @@
 #include <types.h>
 #include <spinlock.h>
 
+#define PRESENT 1
+#define SWAPPED 2
 
+struct pte_t {
+    vaddr_t vaddr;
+    pid_t pid;
+    int old_count;
+    unsigned char flags;
+};
+
+struct pt_t {
+    struct pte_t * v;
+    unsigned int length;
+    struct spinlock pt_lock;
+};
+
+/*
 typedef struct _P {
     vaddr_t *v_pages;
     pid_t *pids;
     uint16_t *control;
     //unsigned int occupied_frame;
     unsigned int length;
-    paddr_t pbase;
     struct spinlock pagetable_lock;
     int* old_count;
     paddr_t *p_pages;
 
 }pagetable;
-
+*/
 
 //FLAG FORMAT: bit 0 = valid/invalid, bit 1 = dirty, bit 2 = write allowed
 
-int pagetable_init(int length);
+int pagetable_init(unsigned int length);
 
-int pagetable_addentry(vaddr_t vaddr,paddr_t paddr,pid_t pid,uint16_t flag);
+int pagetable_addentry(vaddr_t vaddr, paddr_t paddr, pid_t pid, unsigned char flags);
 
-int pagetable_getpaddr(vaddr_t vaddr, paddr_t *paddr,pid_t *pid,uint16_t *flag);
+/* ricerca lineare di una pagina all'interno della inverted page table.
+ * Ritorna 1 in caso di successo e i parametri vengono aggiornati.
+ * Ritorna 0 in caso di fallimento. */
+int pagetable_getpaddr(vaddr_t vaddr, paddr_t* paddr, pid_t* pid, unsigned char* flags);
 
 void pagetable_remove_entries(pid_t pid);
 
@@ -37,7 +55,7 @@ void pagetable_remove_entries(pid_t pid);
 
 void pagetable_remove_entry(int replace_index);
 
-int pagetable_change_flag(paddr_t paddr,uint16_t flag);
+int pagetable_change_flags(paddr_t paddr, unsigned char flags);
 
 void pagetable_destroy(void);
 
