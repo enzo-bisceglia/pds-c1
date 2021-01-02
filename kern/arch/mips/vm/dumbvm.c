@@ -43,7 +43,7 @@
 #include <elf.h>
 #include "PageTable.h"
 #include "swapfile.h"
-
+#include "vmstats.h"
 /*
  * Dumb MIPS-only "VM system" that is intended to only be just barely
  * enough to struggle off the ground. You should replace all of this
@@ -85,7 +85,7 @@ static struct spinlock freemem_lock = SPINLOCK_INITIALIZER;
 static unsigned char *freeRamFrames = NULL;
 static unsigned long *allocSize = NULL;
 static int nRamFrames = 0;
-
+int leakage;
 
 static int allocTableActive = 0;
 
@@ -132,6 +132,8 @@ vm_bootstrap(void)
   	if(swapfile_init(SWAP_SIZE)){
 	  	panic("Swap table allocation failed\n");
   	}
+	
+	leakage = 0;
 }
 
 /*
@@ -203,6 +205,7 @@ getppages(unsigned long npages)
   if (addr!=0 && isTableActive()) {
     spinlock_acquire(&freemem_lock);
     allocSize[addr/PAGE_SIZE] = npages;
+	leakage += npages;
     spinlock_release(&freemem_lock);
   } 
 
@@ -222,6 +225,7 @@ freeppages(paddr_t addr, unsigned long npages){
   for (i=first; i<first+np; i++) {
     freeRamFrames[i] = (unsigned char)1;
   }
+  leakage -= npages;
   spinlock_release(&freemem_lock);
 
   return 1;
@@ -262,66 +266,6 @@ vm_tlbshootdown(const struct tlbshootdown *ts)
 
 static
 int
-my_load_segment(struct addrspace *as, struct vnode *v,
-                off_t offset, vaddr_t vaddr,
-                size_t memsize, size_t filesize,
-                int is_executable)
-{
-    struct iovec iov;
-    struct uio u;
-    int result;
-
-    if (filesize > memsize) {
-        kprintf("ELF: warning: segment filesize > segment memsize\n");
-        filesize = memsize;
-    }
-
-    DEBUG(DB_EXEC, "ELF: Loading %lu bytes to 0x%lx\n",
-          (unsigned long) filesize, (unsigned long) vaddr);
-
-    iov.iov_ubase = (userptr_t)vaddr;
-    iov.iov_len = memsize;		 // length of the memory space
-    u.uio_iov = &iov;
-    u.uio_iovcnt = 1;
-    u.uio_resid = filesize;          // amount to read from the file
-    u.uio_offset = offset;
-    u.uio_segflg = is_executable ? UIO_USERISPACE : UIO_USERSPACE;
-    u.uio_rw = UIO_READ;
-    u.uio_space = as;
-
-    result = VOP_READ(v, &u);
-    if (result) {
-        return result;
-    }
-
-    if (u.uio_resid != 0) {
-
-        kprintf("ELF: short read on segment - file truncated?\n");
-        return ENOEXEC;
-    }
-
-#if 0
-    {
-		size_t fillamt;
-
-		fillamt = memsize - filesize;
-		if (fillamt > 0) {
-			DEBUG(DB_EXEC, "ELF: Zero-filling %lu more bytes\n",
-			      (unsigned long) fillamt);
-			u.uio_resid += fillamt;
-			result = uiomovezeros(fillamt, &u);
-		}
-	}
-#endif
-
-    return result;
-}
-
-
-#define TO_TLB_FLAG(p) (p &= (TLBLO_VALID | TLBLO_DIRTY))
-
-static
-int
 load_page_from_elf(struct vnode* v, paddr_t dest, size_t len, off_t offset){
 	
 	struct iovec iov;
@@ -350,7 +294,9 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 	struct addrspace *as;
 	int spl;
 	int indexR;
-	//vaddr_t original_faultaddress = faultaddress;
+	
+	int result;
+
 	faultaddress &= PAGE_FRAME;
 
 	DEBUG(DB_VM, "dumbvm: fault: 0x%x\n", faultaddress);
@@ -361,6 +307,7 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		panic("dumbvm: got VM_FAULT_READONLY\n");
 	    case VM_FAULT_READ:
 	    case VM_FAULT_WRITE:
+		
 		break;
 	    default:
 		return EINVAL;
@@ -409,25 +356,30 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 	unsigned char flags = 0;
 	(void) p_temp;
 
-	int result = pagetable_getpaddr(faultaddress, &p_temp, &pid, &flags); // tenta di trovare l'indirizzo in pagetable in p_temp passato per riferimento
 	
-	if(result){ // page hit
-		paddr = p_temp;
+	if(pagetable_getpaddr(faultaddress, &p_temp, pid, &flags)){ 
+		paddr = p_temp; // page hit
 	}
-	else if(swapfile_swapin(faultaddress,&p_temp,&pid, as)){ // nello swapfile ?
-		paddr = p_temp;
+	else if(swapfile_swapin(faultaddress, &p_temp, pid, as)){
+		paddr = p_temp; // swapfile hit
 	}
-	// carico da elf o alloco per stack
-	else if (faultaddress >= vbase1 && faultaddress < vtop1) { 
-		paddr = getppages(1);
+	else if (faultaddress >= vbase1 && faultaddress < vtop1) {
 		//Domenico -- GESTIONE PAGE REPLACEMENT
 		as->count_proc++;
-		if (paddr==0 || as->count_proc>=MAX_PROC_PT){
-			//non è stato possibile aggiungere una nuova entry nella pagetable
+		if (as->count_proc>=MAX_PROC_PT){
 			indexR = pagetable_replacement(pid);
-			//metti una condizione di controllo errore
-			swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getControlByIndex(indexR));
+			swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
 			as->count_proc--;
+			paddr = indexR*PAGE_SIZE;
+		}
+		else{
+			paddr = getppages(1);
+			if (paddr==0){
+				indexR = pagetable_replacement(pid);
+				swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
+				as->count_proc--;
+				paddr = indexR*PAGE_SIZE;
+			}
 		}
 		//-------------------------------------------
 		as_zero_region(paddr, 1);
@@ -451,20 +403,22 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		
 	}
 	else if (faultaddress >= vbase2 && faultaddress < vtop2) {
-		paddr = getppages(1);
-
 		//Domenico -- GESTIONE PAGE REPLACEMENT
-		as->count_proc++; //ricorda che questo lo devi decrementare da qualche parte
-		if (paddr==0 || as->count_proc>=MAX_PROC_PT){
-			//non è stato possibile aggiungere una nuova entry nella pagetable
-			//result = pagetable_replacement(as->ph2.p_vaddr+(faultaddress-vbase2),paddr,pid,flag);
-			indexR = pagetable_replacement(pid); //più che result chiama replacement_index
-			
-			//metti una condizione di controllo errore
-
-			//swap-out
-			swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getControlByIndex(indexR));
+		as->count_proc++;
+		if (as->count_proc>=MAX_PROC_PT){
+			indexR = pagetable_replacement(pid);
+			swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
 			as->count_proc--;
+			paddr = indexR*PAGE_SIZE;
+		}
+		else{
+			paddr = getppages(1);
+			if (paddr==0){
+				indexR = pagetable_replacement(pid);
+				swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
+				as->count_proc--;
+				paddr = indexR*PAGE_SIZE;
+			}
 		}
 		//-------------------------------------------
 		as_zero_region(paddr, 1);
@@ -477,29 +431,29 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		//decrement counter of bytes last
 		as->data_resid -= as->data_resid < PAGE_SIZE ? as->data_resid : PAGE_SIZE;
 		result = pagetable_addentry(faultaddress, paddr, pid, flags);
-		/*result = my_load_segment(as, as->v, i + as -> ph2.p_offset , temp ,
-			              PAGE_SIZE,(unsigned int) (i + PAGE_SIZE) > as->ph2.p_filesz ? as->ph2.p_filesz - i : PAGE_SIZE,
-			              as->ph2.p_flags & PF_X);*/
+		
 		if(result<0){
 			return -1;
 		}
 		pagetable_change_flags(paddr, PRESENT);
 	}
 	else if (faultaddress >= stackbase && faultaddress < stacktop) {//se falso tutto quello di prima sono in stack
-		paddr = getppages(1);
-
 		//Domenico -- GESTIONE PAGE REPLACEMENT
-		as->count_proc++; //ricorda che questo lo devi decrementare da qualche parte
-		if (paddr==0 || as->count_proc>=MAX_PROC_PT){
-			//non è stato possibile aggiungere una nuova entry nella pagetable
-			//result = pagetable_replacement(as->ph2.p_vaddr+(faultaddress-vbase2),paddr,pid,flag);
-			indexR = pagetable_replacement(pid); //più che result chiama replacement_index
-			
-			//metti una condizione di controllo errore
-
-			//swap-out
-			swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getControlByIndex(indexR));
+		as->count_proc++;
+		if (as->count_proc>=MAX_PROC_PT){
+			indexR = pagetable_replacement(pid);
+			swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
 			as->count_proc--;
+			paddr = indexR*PAGE_SIZE;
+		}
+		else{
+			paddr = getppages(1);
+			if (paddr==0){
+				indexR = pagetable_replacement(pid);
+				swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
+				as->count_proc--;
+				paddr = indexR*PAGE_SIZE;
+			}
 		}
 		//-------------------------------------------
 
@@ -515,25 +469,19 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 	}
 
 	/* make sure it's page-aligned */
-
 	KASSERT((paddr & PAGE_FRAME) == paddr);
-	//KASSERT((flag & (TLBLO_VALID | TLBLO_DIRTY) >> 9)==flag);
-	KASSERT((pid & 0xfff) == pid); // non possono esserci PID >= 2^12;
 
 	/* Disable interrupts on this CPU while frobbing the TLB. */
 	spl = splhigh();
-
-	//flag &=  TLBLO_VALID | TLBLO_DIRTY;
 	
 	for (i=0; i<NUM_TLB; i++) {
 		tlb_read(&ehi, &elo, i);
-		if (elo & TLBLO_VALID) {
+		if (elo & TLBLO_VALID) { // new vaddr in old paddr
 			continue;
 		}
 
-		ehi = faultaddress | pid;
-
-		elo = paddr | TLBLO_DIRTY | TLBLO_VALID;
+		ehi = faultaddress | pid << 6;
+		elo = paddr | TLBLO_DIRTY | TLBLO_VALID | TLBLO_GLOBAL;
 
 		DEBUG(DB_VM, "dumbvm: 0x%x -> 0x%x\n", faultaddress, paddr);
 		tlb_write(ehi, elo, i);
@@ -541,7 +489,6 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		return 0;
 	}
 
-	my_load_segment(NULL, NULL, 0, 0, 0, 0, 0);
 	kprintf("dumbvm: Ran out of TLB entries - cannot handle page fault\n");
 	splx(spl);
 	return EFAULT;

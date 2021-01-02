@@ -102,14 +102,16 @@ int pagetable_replacement(vaddr_t temp,paddr_t paddr,pid_t pid,uint16_t flag){
 }
 */
 int pagetable_replacement(pid_t pid){
+    
     unsigned int i;
     struct pte_t pte;
     int max = 0;
     int replace_index;
 
+    // FIFO policy
     for (i=0; i<ipt->length; i++){
         pte = ipt->v[i];
-        if (pte.old_count > max && pte.pid==pid){
+        if (pte.old_count > max && pte.pid==pid){ 
             max = pte.old_count;
             replace_index = i;
         }
@@ -119,26 +121,32 @@ int pagetable_replacement(pid_t pid){
 }
 
 
-int pagetable_getpaddr(vaddr_t vaddr, paddr_t* paddr, pid_t* pid, unsigned char* flags){
+int pagetable_getpaddr(vaddr_t vaddr, paddr_t* paddr, pid_t pid, unsigned char* flags){
     
-    unsigned int i, res;
-    struct pte_t pte;
+    unsigned int i, j=ipt->length, res;
+    struct pte_t* pte;
 
     spinlock_acquire(&ipt->pt_lock);
     for(i=0; i<ipt->length; i++){
-        pte = ipt->v[i];
-        if(pte.vaddr == vaddr && pte.pid == *pid)
-            break;
+        pte = &ipt->v[i];
+        if (pte->pid == pid){
+            if (pte->vaddr == vaddr){
+                pte->old_count = 0;
+                j = i;
+            }
+            else
+                pte->old_count+=1; //increment other pages of same pid
+        }
     }
     spinlock_release(&ipt->pt_lock);
 
-    if(i==ipt->length){
+    if(j==ipt->length){
     	res = 0;
     }
 	else {
-       *paddr = i * PAGE_SIZE;
+       *paddr = j * PAGE_SIZE;
        // pid don't change
-       *flags = ipt->v[i].flags;
+       *flags = ipt->v[j].flags;
        res = 1;
     }
 
@@ -228,6 +236,6 @@ pid_t pagetable_getPidByIndex(int index){
     return ipt->v[index].pid;
 }
 
-uint16_t pagetable_getControlByIndex(int index){
+unsigned char pagetable_getFlagsByIndex(int index){
     return ipt->v[index].flags;
 }

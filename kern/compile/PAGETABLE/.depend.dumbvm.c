@@ -13,4 +13,4 @@ dumbvm.o: ../../arch/mips/vm/dumbvm.c ../../include/types.h \
  opt-dumbvm.h ../../include/elf.h includelinks/machine/elf.h \
  ../../include/PageTable.h opt-pagetable.h ../../include/uio.h \
  ../../include/kern/iovec.h ../../include/vnode.h \
- ../../include/swapfile.h
+ ../../include/swapfile.h ../../include/vmstats.h

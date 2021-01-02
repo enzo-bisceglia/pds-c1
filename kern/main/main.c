@@ -50,6 +50,7 @@
 #include <test.h>
 #include <version.h>
 #include "autoconf.h"  // for pseudoconfig
+#include "vmstats.h"
 
 
 /*
@@ -71,7 +72,7 @@ static const char harvard_copyright[] =
     "Copyright (c) 2000, 2001-2005, 2008-2011, 2013, 2014\n"
     "   President and Fellows of Harvard College.  All rights reserved.\n";
 
-
+int leakage;
 /*
  * Initial boot sequence.
  */
@@ -155,7 +156,7 @@ shutdown(void)
 	vfs_unmountall();
 
 	thread_shutdown();
-
+	kprintf("LEAKAGE: %d\n", leakage);
 	splhigh();
 }
 

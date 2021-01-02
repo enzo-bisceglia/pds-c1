@@ -83,8 +83,9 @@ as_activate(void)
 
 	for (i=0; i<NUM_TLB; i++) {
 		tlb_read(&ehi, &elo, i);
-		pid_t entry_pid = ehi & 0xfff;
-		if( entry_pid!=pid )
+		if (((ehi & TLBHI_PID) >> 6)==(unsigned int)pid)
+			continue;
+		else
 			tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
 	}
 
