@@ -44,6 +44,8 @@
 #include "PageTable.h"
 #include "swapfile.h"
 #include "vmstats.h"
+#include "vm_tlb.h"
+
 /*
  * Dumb MIPS-only "VM system" that is intended to only be just barely
  * enough to struggle off the ground. You should replace all of this
@@ -133,6 +135,10 @@ vm_bootstrap(void)
 	  	panic("Swap table allocation failed\n");
   	}
 	
+	if (tlb_map_init()){
+		panic("tlb map allocation failed\n");
+	}
+
 	leakage = 0;
 }
 
@@ -289,10 +295,10 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 {
 	vaddr_t vbase1, vtop1, vbase2, vtop2, stackbase, stacktop;
 	paddr_t paddr;
-	int i;
+	//int i;
 	uint32_t ehi, elo;
 	struct addrspace *as;
-	int spl;
+	//int spl;
 	int indexR;
 	
 	int result;
@@ -349,16 +355,17 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 	vbase2 = as->as_vbase2;
 	vtop2 = vbase2 + (as->as_npages2+1) * PAGE_SIZE;
 	stackbase = USERSTACK - DUMBVM_STACKPAGES * PAGE_SIZE;
-	stacktop = USERSTACK; 
+	stacktop = USERSTACK;
 
 	paddr_t p_temp;
 	pid_t pid = curproc -> pid;
 	unsigned char flags = 0;
 	(void) p_temp;
-
+	int ix = -1;
 	
-	if(pagetable_getpaddr(faultaddress, &p_temp, pid, &flags)){ 
-		paddr = p_temp; // page hit
+	if(pagetable_getpaddr(faultaddress, &p_temp, pid, &flags)){
+		// page hit
+		paddr = p_temp;
 	}
 	else if(swapfile_swapin(faultaddress, &p_temp, pid, as)){
 		paddr = p_temp; // swapfile hit
@@ -368,6 +375,7 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		as->count_proc++;
 		if (as->count_proc>=MAX_PROC_PT){
 			indexR = pagetable_replacement(pid);
+			ix = pagetable_getFlagsByIndex(indexR) >> 2; //overwrite tlb_index
 			swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
 			as->count_proc--;
 			paddr = indexR*PAGE_SIZE;
@@ -376,6 +384,7 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 			paddr = getppages(1);
 			if (paddr==0){
 				indexR = pagetable_replacement(pid);
+				ix = pagetable_getFlagsByIndex(indexR) >> 2; //overwrite tlb_index
 				swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
 				as->count_proc--;
 				paddr = indexR*PAGE_SIZE;
@@ -399,7 +408,6 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		if(result<0){
 			return -1;
 		}
-		pagetable_change_flags(paddr, PRESENT);
 		
 	}
 	else if (faultaddress >= vbase2 && faultaddress < vtop2) {
@@ -407,6 +415,7 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		as->count_proc++;
 		if (as->count_proc>=MAX_PROC_PT){
 			indexR = pagetable_replacement(pid);
+			ix = pagetable_getFlagsByIndex(indexR) >> 2; //overwrite tlb_index
 			swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
 			as->count_proc--;
 			paddr = indexR*PAGE_SIZE;
@@ -415,6 +424,7 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 			paddr = getppages(1);
 			if (paddr==0){
 				indexR = pagetable_replacement(pid);
+				ix = pagetable_getFlagsByIndex(indexR) >> 2; //overwrite tlb_index
 				swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
 				as->count_proc--;
 				paddr = indexR*PAGE_SIZE;
@@ -435,13 +445,14 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		if(result<0){
 			return -1;
 		}
-		pagetable_change_flags(paddr, PRESENT);
+		
 	}
 	else if (faultaddress >= stackbase && faultaddress < stacktop) {//se falso tutto quello di prima sono in stack
 		//Domenico -- GESTIONE PAGE REPLACEMENT
 		as->count_proc++;
 		if (as->count_proc>=MAX_PROC_PT){
 			indexR = pagetable_replacement(pid);
+			ix = pagetable_getFlagsByIndex(indexR) >> 2; //overwrite tlb_index
 			swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
 			as->count_proc--;
 			paddr = indexR*PAGE_SIZE;
@@ -450,6 +461,7 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 			paddr = getppages(1);
 			if (paddr==0){
 				indexR = pagetable_replacement(pid);
+				ix = pagetable_getFlagsByIndex(indexR) >> 2; //overwrite tlb_index
 				swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
 				as->count_proc--;
 				paddr = indexR*PAGE_SIZE;
@@ -462,18 +474,27 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		if(result<0){
 			return -1;
 		}
-		pagetable_change_flags(paddr, PRESENT);
+		
 	}
 	else {
 		return EFAULT;
 	}
 
+	
 	/* make sure it's page-aligned */
 	KASSERT((paddr & PAGE_FRAME) == paddr);
-
-	/* Disable interrupts on this CPU while frobbing the TLB. */
-	spl = splhigh();
 	
+	ehi = faultaddress | pid << 6;
+	elo = paddr | TLBLO_DIRTY | TLBLO_VALID | TLBLO_GLOBAL;
+	tlb_write_entry(&ix, ehi, elo);
+	KASSERT(ix!=-1);
+	pagetable_setFlagsAtIndex(paddr>>12, ix<<2);
+	return 0;
+	
+	/*****************/
+	/* Disable interrupts on this CPU while frobbing the TLB. */
+	/*spl = splhigh();
+
 	for (i=0; i<NUM_TLB; i++) {
 		tlb_read(&ehi, &elo, i);
 		if (elo & TLBLO_VALID) { // new vaddr in old paddr
@@ -491,6 +512,6 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 
 	kprintf("dumbvm: Ran out of TLB entries - cannot handle page fault\n");
 	splx(spl);
-	return EFAULT;
+	return EFAULT;*/
 }
 #endif

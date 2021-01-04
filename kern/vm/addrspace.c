@@ -37,6 +37,7 @@
 #include <mips/tlb.h>
 #include <vfs.h>
 #include <current.h>
+#include "vm_tlb.h"
 
 struct addrspace *
 as_create(void)
@@ -86,7 +87,7 @@ as_activate(void)
 		if (((ehi & TLBHI_PID) >> 6)==(unsigned int)pid)
 			continue;
 		else
-			tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
+			tlb_clean_entry(i);//tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
 	}
 
 	splx(spl);

@@ -8,14 +8,15 @@
 #include <types.h>
 #include <spinlock.h>
 
-#define PRESENT 1
-#define SWAPPED 2
 
 struct pte_t {
     vaddr_t vaddr;
     pid_t pid;
     int old_count;
     unsigned char flags;
+    //    TLB_INDEX   ?     ?
+    // 0x[ 000000 ] [ 0 ] [ 0 ]
+
 };
 
 struct pt_t {
@@ -24,7 +25,6 @@ struct pt_t {
     struct spinlock pt_lock;
 };
 
-//FLAG FORMAT: bit 0 = valid/invalid, bit 1 = dirty, bit 2 = write allowed
 
 int pagetable_init(unsigned int length);
 
@@ -39,8 +39,6 @@ void pagetable_remove_entries(pid_t pid);
 
 void pagetable_remove_entry(int replace_index);
 
-int pagetable_change_flags(paddr_t paddr, unsigned char flags);
-
 void pagetable_destroy(void);
 
 int pagetable_replacement(pid_t pid);
@@ -53,5 +51,8 @@ pid_t pagetable_getPidByIndex(int index);
 
 unsigned char pagetable_getFlagsByIndex(int index);
 
+void pagetable_setTlbIndex(int index, unsigned char val);
+
+void pagetable_setFlagsAtIndex(int index, unsigned char val);
 
 #endif

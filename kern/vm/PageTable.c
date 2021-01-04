@@ -67,40 +67,7 @@ int pagetable_addentry(vaddr_t vaddr, paddr_t paddr, pid_t pid, unsigned char fl
    
     return 0;
 }
-/*
-int pagetable_replacement(vaddr_t temp,paddr_t paddr,pid_t pid,uint16_t flag){
-    unsigned int i;
-    int max = 0;
-    //vaddr_t temp_v_pages;
-    //pid_t temp_pids;
-    //uint16_t temp_control;
-    int replace_index;
 
-    //Applico una politica FIFO
-    for (i=0; i<pg->length; i++){
-        if (pg->old_count[i] > max && pg->pids[i]==pid){
-            max = pg->old_count[i];
-            //temp_control = pg->control[i];
-            //temp_pids = pg->pids[i];
-            //temp_v_pages = pg->v_pages[i];
-            replace_index = i;
-        }
-    }
-    
-    if(max!=0){
-        //vuol dire che è stata trovata una pagina da sostituire
-
-        //Qui bisogna richiamare la funzione su swapfile.c che scrive la pagina vittima su file SWAPFILE
-        //-------QUI
-
-
-        //pagetable_remove_entry(temp_pids, temp_control, temp_v_pages);
-        pagetable_remove_entry(replace_index);
-        pagetable_addentry(temp, paddr, pid, flag);
-    }
-    return 1;
-}
-*/
 int pagetable_replacement(pid_t pid){
     
     unsigned int i;
@@ -172,22 +139,6 @@ void pagetable_remove_entries(pid_t pid){
 	}
 	spinlock_release(&ipt->pt_lock);
 }
-/*
-void pagetable_remove_entry(pid_t pid, uint16_t control, vaddr_t v_page){
-    KASSERT(pid<0);
-    unsigned int i;
-	spinlock_acquire(&pg->pagetable_lock);
-	for(i=0;i<pg->length;i++){
-		if(pg->pids[i]==pid && pg->control[i] == control && pg->v_pages[i] == v_page){
-			pg ->control[i] =0;
-			pg->pids[i] = -1;
-			pg->v_pages[i] = 0x0;	
-		}	
-	}
-	spinlock_release(&pg->pagetable_lock);
-
-}
-*/
 
 void pagetable_remove_entry(int replace_index){
     
@@ -196,20 +147,6 @@ void pagetable_remove_entry(int replace_index){
     ipt->v[replace_index].pid = -1;
     ipt->v[replace_index].vaddr = 0;
     spinlock_release(&ipt->pt_lock);
-}
-
-int pagetable_change_flags(paddr_t paddr, unsigned char flags){
-    
-    unsigned int frame_index = (int) paddr >> 12;
-
-    KASSERT(frame_index<ipt->length);
-
-    spinlock_acquire(&ipt->pt_lock);
-    ipt->v[frame_index].flags = flags;
-    spinlock_release(&ipt->pt_lock);
-
-    return 1;
-    
 }
 
 void pagetable_destroy(void){
@@ -238,4 +175,13 @@ pid_t pagetable_getPidByIndex(int index){
 
 unsigned char pagetable_getFlagsByIndex(int index){
     return ipt->v[index].flags;
+}
+
+void pagetable_setTlbIndex(int index, unsigned char val){
+    ipt->v[index].flags &= 0x03; //clean
+    ipt->v[index].flags |= (val << 2); //set
+}
+
+void pagetable_setFlagsAtIndex(int index, unsigned char val){
+    ipt->v[index].flags |= val;
 }

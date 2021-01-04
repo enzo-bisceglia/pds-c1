@@ -15,6 +15,7 @@
 #include <vfs.h>
 #include "PageTable.h"
 #include "swapfile.h"
+#include "vm_tlb.h"
 
 static swapfile *sw;
 static struct spinlock swapfile_lock;
@@ -58,8 +59,8 @@ int swapfile_swapout(vaddr_t vaddr, paddr_t paddr, pid_t pid, unsigned char flag
 
     if (vaddr>MIPS_KSEG0) return -1;
 
-    //CERCO IL PRIMO FRAME LIBERO IN CUI POTER FARE SWAPOUT  
-    spinlock_acquire(&swapfile_lock);  
+    //CERCO IL PRIMO FRAME LIBERO IN CUI POTER FARE SWAPOUT
+    spinlock_acquire(&swapfile_lock); 
     for(i=0; i<sw_length; i++){
         if(sw[i].pid==-1){
             frame_index = i;
@@ -81,6 +82,7 @@ int swapfile_swapout(vaddr_t vaddr, paddr_t paddr, pid_t pid, unsigned char flag
     sw[frame_index].pid = pid;
     spinlock_release(&swapfile_lock); 
 
+    tlb_clean_entry(flags >> 2);
     pagetable_remove_entry(paddr/PAGE_SIZE); 
     return 1;
 }

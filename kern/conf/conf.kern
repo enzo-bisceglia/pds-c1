@@ -446,3 +446,4 @@ defoption pagetable
 file		vm/PageTable.c
 file		vm/addrspace.c
 file		vm/swapfile.c
+file        vm/vm_tlb.c
