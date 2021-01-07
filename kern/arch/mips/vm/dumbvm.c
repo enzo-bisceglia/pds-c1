@@ -287,6 +287,7 @@ load_page_from_elf(struct vnode* v, paddr_t dest, size_t len, off_t offset){
 	if (ku.uio_resid!=0){
 		return ENOEXEC;
 	}
+
 	return res;
 }
 
@@ -300,11 +301,11 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 	struct addrspace *as;
 	//int spl;
 	int indexR;
-	
+	size_t to_read;
+
 	int result;
 
 	faultaddress &= PAGE_FRAME;
-
 	DEBUG(DB_VM, "dumbvm: fault: 0x%x\n", faultaddress);
 
 	switch (faulttype) {
@@ -351,9 +352,9 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 	KASSERT((as->as_stackpbase & PAGE_FRAME) == as->as_stackpbase);
 
 	vbase1 = as->as_vbase1;
-	vtop1 = vbase1 + (as->as_npages1 +1)* PAGE_SIZE;
+	vtop1 = vbase1 + (as->as_npages1)* PAGE_SIZE;
 	vbase2 = as->as_vbase2;
-	vtop2 = vbase2 + (as->as_npages2+1) * PAGE_SIZE;
+	vtop2 = vbase2 + (as->as_npages2) * PAGE_SIZE;
 	stackbase = USERSTACK - DUMBVM_STACKPAGES * PAGE_SIZE;
 	stacktop = USERSTACK;
 
@@ -392,15 +393,25 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		}
 		//-------------------------------------------
 		as_zero_region(paddr, 1);
+		if (faultaddress == vbase1){
+			if (as->code_sz<PAGE_SIZE-(as->code_offset&~PAGE_FRAME))
+				to_read = as->code_sz;
+			else
+				to_read = PAGE_SIZE-(as->code_offset&~PAGE_FRAME);
+		}
+		else if (faultaddress == vtop1 - PAGE_SIZE){
+			to_read = as->code_sz - (as->as_npages1-1)*PAGE_SIZE;
+			if (as->code_offset&~PAGE_FRAME)
+				to_read-=(as->code_offset&~PAGE_FRAME);
+		}
+		else
+			to_read = PAGE_SIZE;
 
-		KASSERT(as->code_resid>0);
-		result = load_page_from_elf(as->v, paddr,
-				as->code_resid < PAGE_SIZE ? as->code_resid : PAGE_SIZE, /* how many bytes to read */
-				as->code_offset + (faultaddress - vbase1));
+		result = load_page_from_elf(as->v, paddr+(faultaddress==vbase1?as->code_offset&~PAGE_FRAME:0),
+					to_read, /* how much can we read? */
+					faultaddress==vbase1?as->code_offset:(as->code_offset&PAGE_FRAME)+faultaddress-vbase1/* "cursor" over the segment */);
 		
 		result = pagetable_addentry(faultaddress, paddr, pid, flags);
-		//decrement counter of bytes last
-		as->code_resid -= as->code_resid < PAGE_SIZE ? as->code_resid : PAGE_SIZE;
 		
 		/*result = my_load_segment(as, as->v, i + as -> ph1.p_offset , temp ,
 						PAGE_SIZE,to_read,
@@ -433,13 +444,29 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		//-------------------------------------------
 		as_zero_region(paddr, 1);
 
-		KASSERT(as->data_resid>0);
-		result = load_page_from_elf(as->v, paddr,
-				as->data_resid < PAGE_SIZE ? as->data_resid : PAGE_SIZE, /* how many bytes to read */
-				as->data_offset + (faultaddress - vbase2));
+
+
+		if (faultaddress == vbase2){
+			if (as->data_sz<PAGE_SIZE-(as->data_offset&~PAGE_FRAME))
+				to_read = as->data_sz;
+			else
+				to_read = PAGE_SIZE-(as->data_offset&~PAGE_FRAME);
+		}
+		else if (faultaddress == vtop2 - PAGE_SIZE){
+			to_read = as->data_sz - (as->as_npages2-1)*PAGE_SIZE;
+			if (as->data_offset&~PAGE_FRAME)
+				to_read-=(as->data_offset&~PAGE_FRAME);
+		}
+		else
+			to_read = PAGE_SIZE;
+		
+
+		result = load_page_from_elf(as->v, paddr+(faultaddress==vbase2?as->data_offset&~PAGE_FRAME:0),
+				to_read, /* as->data_resid < PAGE_SIZE ? as->data_resid : PAGE_SIZE, how many bytes to read */
+					faultaddress==vbase2?as->data_offset:(as->data_offset&PAGE_FRAME)+faultaddress-vbase2);
 		
 		//decrement counter of bytes last
-		as->data_resid -= as->data_resid < PAGE_SIZE ? as->data_resid : PAGE_SIZE;
+	
 		result = pagetable_addentry(faultaddress, paddr, pid, flags);
 		
 		if(result<0){

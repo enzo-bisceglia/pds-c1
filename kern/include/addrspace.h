@@ -61,9 +61,9 @@ struct addrspace {
         paddr_t as_stackpbase;
 
         off_t code_offset; // code offset within elf file
-        uint32_t code_resid;
+        uint32_t code_sz;
         off_t data_offset; // data offset within elf file
-        uint32_t data_resid;
+        uint32_t data_sz;
         struct vnode *v;   // file descriptor
 
         /* Put stuff here for your VM system */
