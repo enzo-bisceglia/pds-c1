@@ -84,8 +84,8 @@ a canal - Panama!
 #include <stdio.h>
 #include <string.h>
 
-char palindrome[22] = "itopinonavevanonipoti";
-/*char palindrome[8000] =
+//char palindrome[22] = "itopinonavevanonipoti";
+char palindrome[8000] =
 "amanaplanacaretabanamyriadasumalacaliarahoopapintacatalpaagasanoil"
 "abirdayellavatacawapaxawagataxanayaramacapayamagayatsarawalla"
 "caralugerawardabinawomanavassalawolfatunaanitapallafretawattabaya"
@@ -169,7 +169,7 @@ char palindrome[22] = "itopinonavevanonipoti";
 "gutapollagatewayalawajayasapazagafatahallagamutadabacanatabuaday"
 "abattawaterfallapatinaanutaflowalassavanamowanibadrawaregularacalla"
 "warastayagamayapacamarayanaxatagawaxapawacatavalleyadribaliona"
-"sagaaplatacatnipapooharailacalamusadairymanabateracanalpanama"*/;
+"sagaaplatacatnipapooharailacalamusadairymanabateracanalpanama";
 
 
 int

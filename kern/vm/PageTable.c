@@ -135,7 +135,9 @@ void pagetable_remove_entries(pid_t pid){
             pte->pid = -1;
             pte->vaddr = 0;
             pte->old_count = 0;
-		}	
+            freeppages(i*PAGE_SIZE, 1);
+		}
+        
 	}
 	spinlock_release(&ipt->pt_lock);
 }

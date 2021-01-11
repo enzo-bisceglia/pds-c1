@@ -59,12 +59,14 @@ struct addrspace {
         vaddr_t as_vbase2;
         size_t as_npages2;
         paddr_t as_stackpbase;
-
+        
+        /**** FILE INFO ******/
         off_t code_offset; // code offset within elf file
         uint32_t code_sz;
         off_t data_offset; // data offset within elf file
         uint32_t data_sz;
         struct vnode *v;   // file descriptor
+        /*********************/
 
         /* Put stuff here for your VM system */
         int count_proc; //variabile che mi indica quante pagine di questo processo carico in PT
