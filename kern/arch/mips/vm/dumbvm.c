@@ -375,8 +375,8 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		//Domenico -- GESTIONE PAGE REPLACEMENT
 		as->count_proc++;
 		if (as->count_proc>=MAX_PROC_PT){
-			indexR = pagetable_replacement(pid);
-			ix = pagetable_getFlagsByIndex(indexR) >> 2; //overwrite tlb_index
+			indexR = pagetable_replacement(pid); //find page to be replaced
+			ix = pagetable_getFlagsByIndex(indexR) >> 2; //retrieve tlb index of page being replaced (it will be used to clean the tlb entry)
 			swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
 			as->count_proc--;
 			paddr = indexR*PAGE_SIZE;
@@ -385,7 +385,7 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 			paddr = getppages(1);
 			if (paddr==0){
 				indexR = pagetable_replacement(pid);
-				ix = pagetable_getFlagsByIndex(indexR) >> 2; //overwrite tlb_index
+				ix = pagetable_getFlagsByIndex(indexR) >> 2;
 				swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
 				as->count_proc--;
 				paddr = indexR*PAGE_SIZE;
@@ -393,29 +393,33 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		}
 		//-------------------------------------------
 		as_zero_region(paddr, 1);
-		if (faultaddress == vbase1){
-			if (as->code_sz<PAGE_SIZE-(as->code_offset&~PAGE_FRAME))
+		/*
+		 * l'errore col caricamento precedente stava nel fatto che a prescindere dall' "offset virtuale"
+		 * in cui si trovasse un segmento del programma, questo veniva comunque caricato all' inizio della
+		 * corrispondente pagina fisica. Il risultato era ovviamente un esecuzione "disallineata". 
+		*/
+		 
+		if (faultaddress == vbase1){ // mi trovo all' inizio della prima pagina (il segmento si trova all'inizio o è presente un offset?)
+			if (as->code_sz<PAGE_SIZE-(as->code_offset&~PAGE_FRAME)) // la quantità da leggere dipende dalla dimensione del segmento (è < 4KB ?)
 				to_read = as->code_sz;
 			else
 				to_read = PAGE_SIZE-(as->code_offset&~PAGE_FRAME);
 		}
-		else if (faultaddress == vtop1 - PAGE_SIZE){
-			to_read = as->code_sz - (as->as_npages1-1)*PAGE_SIZE;
-			if (as->code_offset&~PAGE_FRAME)
+		else if (faultaddress == vtop1 - PAGE_SIZE){ // mi trovo all' inizio dell' ultima pagina
+			to_read = as->code_sz - (as->as_npages1-1)*PAGE_SIZE; // quanti bytes ci sono dall' inizio del segmento (virtuale)?
+			if (as->code_offset&~PAGE_FRAME) // rimuovo eventuale offset della prima pagina
 				to_read-=(as->code_offset&~PAGE_FRAME);
 		}
-		else
+		else //mi trovo in una pagina intermedia del segmento (sicuramente 4KB consecutivi)
 			to_read = PAGE_SIZE;
 
-		result = load_page_from_elf(as->v, paddr+(faultaddress==vbase1?as->code_offset&~PAGE_FRAME:0),
-					to_read, /* how much can we read? */
-					faultaddress==vbase1?as->code_offset:(as->code_offset&PAGE_FRAME)+faultaddress-vbase1/* "cursor" over the segment */);
-		
+		result = load_page_from_elf(as->v, paddr+(faultaddress==vbase1?as->code_offset&~PAGE_FRAME:0), /* dove (indirizzo fisico) andare a scrivere */
+					to_read,
+					faultaddress==vbase1?as->code_offset:(as->code_offset&PAGE_FRAME)+faultaddress-vbase1/* offset (nel file) da cui leggere */);
+		flags = 0x01; //READONLY
 		result = pagetable_addentry(faultaddress, paddr, pid, flags);
-		
-		/*result = my_load_segment(as, as->v, i + as -> ph1.p_offset , temp ,
-						PAGE_SIZE,to_read,
-						as->ph1.p_flags & PF_X);*/
+
+		// ?
 		if(result<0){
 			return -1;
 		}
@@ -444,8 +448,6 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		//-------------------------------------------
 		as_zero_region(paddr, 1);
 
-
-
 		if (faultaddress == vbase2){
 			if (as->data_sz<PAGE_SIZE-(as->data_offset&~PAGE_FRAME))
 				to_read = as->data_sz;
@@ -462,13 +464,12 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		
 
 		result = load_page_from_elf(as->v, paddr+(faultaddress==vbase2?as->data_offset&~PAGE_FRAME:0),
-				to_read, /* as->data_resid < PAGE_SIZE ? as->data_resid : PAGE_SIZE, how many bytes to read */
-					faultaddress==vbase2?as->data_offset:(as->data_offset&PAGE_FRAME)+faultaddress-vbase2);
-		
-		//decrement counter of bytes last
+						to_read, 
+						faultaddress==vbase2?as->data_offset:(as->data_offset&PAGE_FRAME)+faultaddress-vbase2);
 	
 		result = pagetable_addentry(faultaddress, paddr, pid, flags);
 		
+		// ?
 		if(result<0){
 			return -1;
 		}
@@ -512,7 +513,19 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 	KASSERT((paddr & PAGE_FRAME) == paddr);
 	
 	ehi = faultaddress | pid << 6;
-	elo = paddr | TLBLO_DIRTY | TLBLO_VALID | TLBLO_GLOBAL;
+	elo = paddr | TLBLO_VALID | TLBLO_GLOBAL;
+	if ((flags&0x01)!=0x01)
+		elo |= TLBLO_DIRTY; //page is modifiable
+	
+	/* Abbiamo inserito l'informazione sul pid perciò TLBLO_GLOBAL non dovrebbe essere presente. Tuttavia
+	  per motivi a me oscuri (probabilmente va modificato qualche registro della cpu in modo tale che
+	  la cpu possa associare il pid del processo in esecuzione e con un pid trovato nelle entry **tale registro è entryhi**)
+	  se non setto il flag, il sistema va in crash (questo si può spiegare).
+	  Ad ogni modo, è utile avere il pid a portata così da evitare il flush ad ogni context switch ma
+	  implementare le system call per sincronizzazione non ha senso, i programmi che si basano e.g. su 
+	  fork sarebbero inutilizzabili (con TLBLO_GLOBAL e due processi che fanno riferimento allo stesso vaddr generano
+	  errore di entry duplicata in tlb)
+	*/
 	tlb_write_entry(&ix, ehi, elo);
 	KASSERT(ix!=-1);
 	pagetable_setFlagsAtIndex(paddr>>12, ix<<2);

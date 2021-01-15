@@ -53,6 +53,7 @@ int swapfile_init(int length){
 }
 
 int swapfile_swapout(vaddr_t vaddr, paddr_t paddr, pid_t pid, unsigned char flags){
+    
     unsigned int frame_index,i, err;
     struct iovec iov;
     struct uio ku;
@@ -73,7 +74,7 @@ int swapfile_swapout(vaddr_t vaddr, paddr_t paddr, pid_t pid, unsigned char flag
     uio_kinit(&iov, &ku, (void *)PADDR_TO_KVADDR(paddr), PAGE_SIZE, frame_index*PAGE_SIZE, UIO_WRITE);
     err = VOP_WRITE(swapstore, &ku);
     if (err) {
-			panic(": Write error: %s\n",strerror(err));
+		panic(": Write error: %s\n",strerror(err));
 	}
 
     spinlock_acquire(&swapfile_lock); 
@@ -91,7 +92,7 @@ int swapfile_swapin(vaddr_t vaddr, paddr_t *paddr, pid_t pid, struct addrspace *
     
     unsigned int i;
     int indexR;
-
+    int res;
     struct iovec iov;
     struct uio ku;
 
@@ -113,11 +114,23 @@ int swapfile_swapin(vaddr_t vaddr, paddr_t *paddr, pid_t pid, struct addrspace *
                     *paddr = indexR*PAGE_SIZE;
                 }
             }
-
+            // clean the page just got by allocation (or previously swapped)
             as_zero_region(*paddr, 1);
+            // perform the I/O
             uio_kinit(&iov, &ku, (void *)PADDR_TO_KVADDR(*paddr), PAGE_SIZE, i*PAGE_SIZE, UIO_READ);
-            VOP_READ(swapstore, &ku);
+            res = VOP_READ(swapstore, &ku);
+            if (res) {
+                panic("something went wrong while reading from the swapfile");
+            }
+
+            if (ku.uio_resid!=0){
+                /* short read; problem with executable? */
+		        kprintf("ELF: short read on header - file truncated?\n");
+                /* return ENOEXEC; */
+            }
+            // pid equals to -1 means that the referenced block in the swapfile can be now reused
             sw[i].pid = -1;
+            // add the recently swapped-in page in the IPT
             pagetable_addentry(vaddr, *paddr, pid, sw[*paddr/PAGE_SIZE].flags);
             return 1;
         }

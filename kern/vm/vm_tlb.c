@@ -25,6 +25,16 @@ tlb_map_init(void) {
 
 static
 int
+tlb_get_rr_victim(void){
+    int victim;
+    static unsigned int next_victim=0;
+    victim = next_victim;
+    next_victim = (next_victim+1)%NUM_TLB;
+    return victim;
+}
+
+static
+int
 tlb_get_fresh_index(void){
 	int i, j;
 	unsigned char ix = 1;
@@ -42,9 +52,10 @@ tlb_get_fresh_index(void){
 				ix<<=1;
 		}
 	}
-	//round robin goes here
+    /* NO MORE TLB ENTRIES AVAILABLE -> REPLACEMENT*/
+    i = tlb_get_rr_victim();
 	spinlock_release(&tlb_lock);
-    panic("need to replace this bitch");
+    return i;
 }
 
 void

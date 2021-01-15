@@ -46,7 +46,7 @@
 
 #define DUMBVM_STACKPAGES    36
 
-#define MAX_PROC_PT 10                /* (successivamente 36 o >36)Massimo allocabile per ogni processo nella PT */
+#define MAX_PROC_PT 4                /* (successivamente 36 o >36)Massimo allocabile per ogni processo nella PT */
 #define SWAP_SIZE 576                /* dimensione dello swapfile: 9MB/4kB */
 
 /* Initialization function */

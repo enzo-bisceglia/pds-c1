@@ -183,7 +183,7 @@ main(void)
 	printf("%s\n", palindrome);
 
 	printf("Testing...");
-	/* skip to end */
+	// skip to end
 	end = palindrome+strlen(palindrome);
 	end--;
 
