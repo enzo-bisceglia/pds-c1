@@ -73,6 +73,7 @@ static const char harvard_copyright[] =
     "   President and Fellows of Harvard College.  All rights reserved.\n";
 
 int leakage;
+int tlb_f, tlb_ff, tlb_fr, tlb_i, tlb_r;
 /*
  * Initial boot sequence.
  */
@@ -156,6 +157,12 @@ shutdown(void)
 	vfs_unmountall();
 
 	thread_shutdown();
+	kprintf("###STATISTICS###\n");
+	kprintf("tlb_faults: %d\n"
+			"tlb faults with free space: %d\n"
+			"tlb faults with replace: %d\n"
+			"tlb reloads: %d\n", tlb_f, tlb_ff, tlb_fr, tlb_r);
+
 	kprintf("LEAKAGE: %d\n", leakage);
 	splhigh();
 }

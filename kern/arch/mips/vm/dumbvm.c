@@ -88,6 +88,8 @@ static unsigned char *freeRamFrames = NULL;
 static unsigned long *allocSize = NULL;
 static int nRamFrames = 0;
 int leakage;
+int tlb_f, tlb_ff, tlb_fr, tlb_r;
+int pf_z, pf_d;
 
 static int allocTableActive = 0;
 
@@ -139,7 +141,7 @@ vm_bootstrap(void)
 		panic("tlb map allocation failed\n");
 	}
 
-	leakage = 0;
+	tlb_f = tlb_ff = tlb_fr = pf_z = pf_d = leakage = 0;
 }
 
 /*
@@ -314,7 +316,7 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		panic("dumbvm: got VM_FAULT_READONLY\n");
 	    case VM_FAULT_READ:
 	    case VM_FAULT_WRITE:
-		
+		tlb_f++;
 		break;
 	    default:
 		return EINVAL;
@@ -367,6 +369,7 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 	if(pagetable_getpaddr(faultaddress, &p_temp, pid, &flags)){
 		// page hit
 		paddr = p_temp;
+		tlb_r++;
 	}
 	else if(swapfile_swapin(faultaddress, &p_temp, pid, as)){
 		paddr = p_temp; // swapfile hit

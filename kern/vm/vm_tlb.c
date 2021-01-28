@@ -3,9 +3,13 @@
 #include <spl.h>
 #include <spinlock.h>
 #include <mips/tlb.h>
+#include "vmstats.h"
 
 unsigned char* tlb_map;
 static struct spinlock tlb_lock = SPINLOCK_INITIALIZER;
+
+int tlb_ff;
+int tlb_fr;
 
 int
 tlb_map_init(void) {
@@ -52,10 +56,8 @@ tlb_get_fresh_index(void){
 				ix<<=1;
 		}
 	}
-    /* NO MORE TLB ENTRIES AVAILABLE -> REPLACEMENT*/
-    i = tlb_get_rr_victim();
 	spinlock_release(&tlb_lock);
-    return i;
+    return -1;
 }
 
 void
@@ -63,8 +65,17 @@ tlb_write_entry(int* index, uint32_t ehi, uint32_t elo){
 
     int spl;
 
-    if (*index==-1)
+    if (*index==-1){
         *index = tlb_get_fresh_index();
+        if (*index==-1){
+            *index = tlb_get_rr_victim();
+            tlb_fr++;
+        }
+        else
+            tlb_ff++;
+    }
+    else
+        tlb_ff++;
 
     spl = splhigh();
 
