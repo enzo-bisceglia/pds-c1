@@ -41,7 +41,7 @@
 #include <uio.h>
 #include <vnode.h>
 #include <elf.h>
-#include "PageTable.h"
+#include "pt.h"
 #include "swapfile.h"
 #include "vmstats.h"
 #include "vm_tlb.h"
@@ -151,6 +151,7 @@ vm_bootstrap(void)
  * avoid the situation where syscall-layer code that works ok with
  * dumbvm starts blowing up during the VM assignment.
  */
+static
 void
 dumbvm_can_sleep(void)
 {

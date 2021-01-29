@@ -2,12 +2,11 @@
 // Created by attil on 10/11/2020.
 //
 
-#ifndef _PAGETABLE_H_
-#define _PAGETABLE_H_
-#include "opt-pagetable.h"
+#ifndef _PT_H_
+#define _PT_H_
+
 #include <types.h>
 #include <spinlock.h>
-
 
 struct pte_t {
     vaddr_t vaddr;
@@ -63,4 +62,4 @@ void pagetable_setTlbIndex(int index, unsigned char val);
 /* Setta a 'val' il flag della pagina fisica con indice 'index' nella IPT */
 void pagetable_setFlagsAtIndex(int index, unsigned char val);
 
-#endif
+#endif /* _PT_H_ */

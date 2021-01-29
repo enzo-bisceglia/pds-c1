@@ -34,14 +34,15 @@
  * Address space structure and operations.
  */
 
-
-#include <vm.h>
-#include "opt-dumbvm.h"
-#include <elf.h>
-#include <PageTable.h>
 #include <types.h>
-#include <current.h>
+#include <vm.h>
 
+#include <elf.h>
+
+#include <current.h>
+#include "opt-dumbvm.h"
+#include "opt-paging.h"
+#include "pt.h"
 
 
 /*
@@ -52,7 +53,7 @@
  */
 
 struct addrspace {
-#if OPT_PAGETABLE
+#if OPT_PAGING
 
         vaddr_t as_vbase1;
         size_t as_npages1;
@@ -69,7 +70,7 @@ struct addrspace {
         /*********************/
 
         /* Put stuff here for your VM system */
-        int count_proc; //variabile che mi indica quante pagine di questo processo carico in PT
+        int count_proc; // variabile che mi indica quante pagine di questo processo carico in PT
 #endif
 };
 
@@ -123,7 +124,9 @@ void              as_destroy(struct addrspace *);
 int               as_define_region(struct addrspace *as,
                                    vaddr_t vaddr,
                                    size_t sz,
+                                   #if OPT_PAGING
                                    off_t offset,
+                                   #endif
                                    int readable,
                                    int writeable,
                                    int executable);

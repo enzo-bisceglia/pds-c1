@@ -2,9 +2,12 @@
 // Created by attilio on 10/11/2020.
 //
 
-#include "PageTable.h"
+#include <types.h>
+#include <kern/errno.h>
 #include <lib.h>
 #include <vm.h>
+#include "pt.h"
+#include "coremap.h"
 
 
 static struct pt_t *ipt;
@@ -135,7 +138,7 @@ void pagetable_remove_entries(pid_t pid){
             pte->pid = -1;
             pte->vaddr = 0;
             pte->old_count = 0;
-            freeppages(i*PAGE_SIZE, 1);
+            freeppages(i*PAGE_SIZE);
 		}
         
 	}

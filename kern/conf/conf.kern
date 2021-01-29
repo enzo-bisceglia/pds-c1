@@ -439,11 +439,18 @@ file		test/kmalloctest.c
 file		test/fstest.c
 optfile net	test/nettest.c
 
+########################################
+#                                      #
+#           PDS Assignment C1          #
+#                                      #
+########################################
+
 defoption syscalls
 file		syscall/proc_syscalls.c
 file		syscall/file_syscalls.c
-defoption pagetable
-file		vm/PageTable.c
-file		vm/addrspace.c
-file		vm/swapfile.c
-file        vm/vm_tlb.c
+
+defoption   paging
+optfile     paging  vm/pt.c
+optfile     paging	vm/swapfile.c
+optfile     paging  vm/vm_tlb.c
+optfile     paging  vm/coremap.c

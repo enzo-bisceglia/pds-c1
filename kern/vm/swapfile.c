@@ -13,15 +13,19 @@
 #include <vnode.h>
 #include <elf.h>
 #include <vfs.h>
-#include "PageTable.h"
+#include "coremap.h"
+#include "pt.h"
 #include "swapfile.h"
 #include "vm_tlb.h"
+#include "vmstats.h"
 
 static swapfile *sw;
 static struct spinlock swapfile_lock;
 unsigned int sw_length;
 struct vnode* swapstore;
 int fd;
+int pf_z, pf_d;
+int pf_sw_in, pf_sw_out;
 
 static const char swapfilename[] = "emu0:SWAPFILE";
 
@@ -49,6 +53,8 @@ int swapfile_init(int length){
         panic("swapfile_init can't open swapfile");
     }
     spinlock_init(&swapfile_lock);
+
+    pf_sw_in = pf_sw_out = 0;
     return 0;
 }
 
@@ -68,7 +74,10 @@ int swapfile_swapout(vaddr_t vaddr, paddr_t paddr, pid_t pid, unsigned char flag
             break;
         }
     }
-    spinlock_release(&swapfile_lock);  
+    spinlock_release(&swapfile_lock);
+
+    if (i==sw_length)
+        panic("Out of swap space");
 
     //FACCIO SWAPOUT
     uio_kinit(&iov, &ku, (void *)PADDR_TO_KVADDR(paddr), PAGE_SIZE, frame_index*PAGE_SIZE, UIO_WRITE);
@@ -85,6 +94,7 @@ int swapfile_swapout(vaddr_t vaddr, paddr_t paddr, pid_t pid, unsigned char flag
 
     tlb_clean_entry(flags >> 2);
     pagetable_remove_entry(paddr/PAGE_SIZE); 
+    pf_sw_out++;
     return 1;
 }
 
@@ -115,6 +125,7 @@ int swapfile_swapin(vaddr_t vaddr, paddr_t *paddr, pid_t pid, struct addrspace *
                 }
             }
             // clean the page just got by allocation (or previously swapped)
+            pf_z++;
             as_zero_region(*paddr, 1);
             // perform the I/O
             uio_kinit(&iov, &ku, (void *)PADDR_TO_KVADDR(*paddr), PAGE_SIZE, i*PAGE_SIZE, UIO_READ);
@@ -131,6 +142,7 @@ int swapfile_swapin(vaddr_t vaddr, paddr_t *paddr, pid_t pid, struct addrspace *
             // pid equals to -1 means that the referenced block in the swapfile can be now reused
             sw[i].pid = -1;
             // add the recently swapped-in page in the IPT
+            pf_sw_in++;
             pagetable_addentry(vaddr, *paddr, pid, sw[*paddr/PAGE_SIZE].flags);
             return 1;
         }

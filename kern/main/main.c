@@ -51,6 +51,7 @@
 #include <version.h>
 #include "autoconf.h"  // for pseudoconfig
 #include "vmstats.h"
+#include "opt-paging.h"
 
 
 /*
@@ -72,8 +73,9 @@ static const char harvard_copyright[] =
     "Copyright (c) 2000, 2001-2005, 2008-2011, 2013, 2014\n"
     "   President and Fellows of Harvard College.  All rights reserved.\n";
 
-int leakage;
-int tlb_f, tlb_ff, tlb_fr, tlb_i, tlb_r;
+int tlb_f, tlb_ff, tlb_fr, tlb_i, tlb_r, pf_z;
+int pf_d, pf_e;
+int pf_sw_in, pf_sw_out;
 /*
  * Initial boot sequence.
  */
@@ -157,13 +159,21 @@ shutdown(void)
 	vfs_unmountall();
 
 	thread_shutdown();
+#if OPT_PAGING
 	kprintf("###STATISTICS###\n");
 	kprintf("tlb_faults: %d\n"
 			"tlb faults with free space: %d\n"
 			"tlb faults with replace: %d\n"
-			"tlb reloads: %d\n", tlb_f, tlb_ff, tlb_fr, tlb_r);
-
-	kprintf("LEAKAGE: %d\n", leakage);
+			"tlb invalidations: %d\n"
+			"tlb reloads: %d\n"
+			"page faults (zeroed): %d\n"
+			"page faults (disk): %d\n"
+			"page faults from ELF: %d\n"
+			"page faults from swapfile: %d\n"
+			"swapfile writes: %d\n",
+			tlb_f, tlb_ff, tlb_fr, tlb_i, tlb_r, pf_z, pf_d, pf_e, pf_sw_in, pf_sw_out);
+#endif
+	
 	splhigh();
 }
 
