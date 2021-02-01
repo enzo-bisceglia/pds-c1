@@ -46,8 +46,8 @@
 
 #if OPT_PAGING
 
-#define MAX_PROC_PT 10                /* (successivamente 36 o >36)Massimo allocabile per ogni processo nella PT */
-#define SWAP_SIZE 576                /* dimensione dello swapfile: 9MB/4kB */
+#define MAX_PROC_PT 32                /* (successivamente 36 o >36)Massimo allocabile per ogni processo nella PT */
+#define SWAP_SIZE 2304                /* dimensione dello swapfile: 9MB/4kB = 9*1024*1024/4096 */
 
 #endif
 

@@ -88,12 +88,12 @@ int swapfile_swapout(vaddr_t vaddr, paddr_t paddr, pid_t pid, unsigned char flag
 
     spinlock_acquire(&swapfile_lock); 
     sw[frame_index].v_pages = vaddr;
-    sw[frame_index].flags = flags;
+    sw[frame_index].flags = flags&0x01;
     sw[frame_index].pid = pid;
     spinlock_release(&swapfile_lock); 
 
     tlb_clean_entry(flags >> 2);
-    pagetable_remove_entry(paddr/PAGE_SIZE); 
+    pagetable_remove_entry(paddr/PAGE_SIZE);
     pf_sw_out++;
     return 1;
 }
@@ -147,5 +147,6 @@ int swapfile_swapin(vaddr_t vaddr, paddr_t *paddr, pid_t pid, struct addrspace *
             return 1;
         }
     }
+
     return 0;
 }

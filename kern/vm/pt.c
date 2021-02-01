@@ -12,6 +12,19 @@
 
 static struct pt_t *ipt;
 
+void lru_update_cnt(void){
+    unsigned int i;
+
+    if (ipt!=NULL){
+        spinlock_acquire(&ipt->pt_lock);
+        for (i=0; i<ipt->length; i++){
+            if (ipt->v[i].pid!=-1)
+                ipt->v[i].old_count+=1;
+        }
+        spinlock_release(&ipt->pt_lock);
+    }
+}
+
 int
 pagetable_init(unsigned int length){
 
@@ -28,23 +41,25 @@ pagetable_init(unsigned int length){
         ipt = NULL;
         return 1;
     }
+    ipt->length = (unsigned int)length;
 
-    for (i=0; i<length; i++){
+    spinlock_init(&ipt->pt_lock);
+    
+    spinlock_acquire(&ipt->pt_lock);
+    for (i=0; i<ipt->length; i++){
         ipt->v[i].vaddr = 0;
         ipt->v[i].old_count = 0;
         ipt->v[i].pid = -1;
         ipt->v[i].flags = 0;
     }
-
-    ipt->length = (unsigned int)length;
-    spinlock_init(&ipt->pt_lock);
+    spinlock_release(&ipt->pt_lock);
 
     return 0;
 }
 
 int pagetable_addentry(vaddr_t vaddr, paddr_t paddr, pid_t pid, unsigned char flags){
     
-    unsigned int i;
+    //unsigned int i;
     unsigned int frame_index = (int) paddr >> 12;
     struct pte_t *pte;
 
@@ -60,12 +75,12 @@ int pagetable_addentry(vaddr_t vaddr, paddr_t paddr, pid_t pid, unsigned char fl
     //se riesco ad aggiungere una entry alla pagetable
     //allora devo incrementare il contatore old_count
     //per tutti i processi  con lo stesso PID
-    for (i=0; i<ipt->length; i++){
+    /* for (i=0; i<ipt->length; i++){
         pte = &ipt->v[i];
         if(pte->pid==pid && i!=frame_index){
             pte->old_count += 1;
         }
-    }
+    }*/
     spinlock_release(&ipt->pt_lock);
    
     return 0;
@@ -104,8 +119,9 @@ int pagetable_getpaddr(vaddr_t vaddr, paddr_t* paddr, pid_t pid, unsigned char* 
                 pte->old_count = 0;
                 j = i;
             }
-            else
+            /*else
                 pte->old_count+=1; //increment other pages of same pid
+                */
         }
     }
     spinlock_release(&ipt->pt_lock);

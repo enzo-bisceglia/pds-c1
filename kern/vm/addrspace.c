@@ -378,7 +378,7 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 	paddr_t p_temp;
 	pid_t pid = curproc -> pid;
 	unsigned char flags = 0;
-	(void) p_temp;
+	
 	int ix = -1;
 	
 	if(pagetable_getpaddr(faultaddress, &p_temp, pid, &flags)){
@@ -387,159 +387,174 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		tlb_r++;
 	}
 	else if(swapfile_swapin(faultaddress, &p_temp, pid, as)){
+		
 		paddr = p_temp; // swapfile hit
+		flags = pagetable_getFlagsByIndex(paddr>>12);
 		pf_d++;
 	}
-	else if (faultaddress >= vbase1 && faultaddress < vtop1) {
-		//Domenico -- GESTIONE PAGE REPLACEMENT
-		as->count_proc++;
-		if (as->count_proc>=MAX_PROC_PT){
-			indexR = pagetable_replacement(pid); //find page to be replaced
-			ix = pagetable_getFlagsByIndex(indexR) >> 2; //retrieve tlb index of page being replaced (it will be used to clean the tlb entry)
-			swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
-			as->count_proc--;
-			paddr = indexR*PAGE_SIZE;
-		}
-		else{
-			paddr = getppages(1);
-			if (paddr==0){
-				indexR = pagetable_replacement(pid);
-				ix = pagetable_getFlagsByIndex(indexR) >> 2;
+	else{
+
+		if (faultaddress >= vbase1 && faultaddress < vtop1) {
+			//Domenico -- GESTIONE PAGE REPLACEMENT
+			as->count_proc++;
+			if (as->count_proc>=MAX_PROC_PT){
+				indexR = pagetable_replacement(pid); //find page to be replaced
+				ix = pagetable_getFlagsByIndex(indexR) >> 2; //retrieve tlb index of page being replaced (it will be used to clean the tlb entry)
 				swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
 				as->count_proc--;
 				paddr = indexR*PAGE_SIZE;
 			}
-		}
-		//-------------------------------------------
-		pf_z++;
-		as_zero_region(paddr, 1);
-		/*
-		 * l'errore col caricamento precedente stava nel fatto che a prescindere dall' "offset virtuale"
-		 * in cui si trovasse un segmento del programma, questo veniva comunque caricato all' inizio della
-		 * corrispondente pagina fisica. Il risultato era ovviamente un esecuzione "disallineata". 
-		*/
-		 
-		if (faultaddress == vbase1){ // mi trovo all' inizio della prima pagina (il segmento si trova all'inizio o è presente un offset?)
-			if (as->code_sz<PAGE_SIZE-(as->code_offset&~PAGE_FRAME)) // la quantità da leggere dipende dalla dimensione del segmento (è < 4KB ?)
-				to_read = as->code_sz;
-			else
-				to_read = PAGE_SIZE-(as->code_offset&~PAGE_FRAME);
-		}
-		else if (faultaddress == vtop1 - PAGE_SIZE){ // mi trovo all' inizio dell' ultima pagina
-			to_read = as->code_sz - (as->as_npages1-1)*PAGE_SIZE; // quanti bytes ci sono dall' inizio del segmento (virtuale)?
-			if (as->code_offset&~PAGE_FRAME) // rimuovo eventuale offset della prima pagina
-				to_read-=(as->code_offset&~PAGE_FRAME);
-		}
-		else //mi trovo in una pagina intermedia del segmento (sicuramente 4KB consecutivi)
-			to_read = PAGE_SIZE;
-
-		result = load_page_from_elf(as->v, paddr+(faultaddress==vbase1?as->code_offset&~PAGE_FRAME:0), /* dove (indirizzo fisico) andare a scrivere */
-					to_read,
-					faultaddress==vbase1?as->code_offset:(as->code_offset&PAGE_FRAME)+faultaddress-vbase1/* offset (nel file) da cui leggere */);
-		pf_d++;
-		pf_e++;
-		flags = 0x01; //READONLY
-		result = pagetable_addentry(faultaddress, paddr, pid, flags);
-
-		
-		if(result<0){
-			return -1;
-		}
-		
-	}
-	else if (faultaddress >= vbase2 && faultaddress < vtop2) {
-		//Domenico -- GESTIONE PAGE REPLACEMENT
-		as->count_proc++;
-		if (as->count_proc>=MAX_PROC_PT){
-			indexR = pagetable_replacement(pid);
-			ix = pagetable_getFlagsByIndex(indexR) >> 2; //overwrite tlb_index
-			swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
-			as->count_proc--;
-			paddr = indexR*PAGE_SIZE;
-		}
-		else{
-			paddr = getppages(1);
-			if (paddr==0){
-				indexR = pagetable_replacement(pid);
-				ix = pagetable_getFlagsByIndex(indexR) >> 2; //overwrite tlb_index
-				swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
-				as->count_proc--;
-				paddr = indexR*PAGE_SIZE;
+			else{
+				paddr = getppages(1);
+				if (paddr==0){
+					//indexR contiene indice (in ipt) della pagina da sacrificare
+					indexR = pagetable_replacement(pid);
+					// ix contiene indice in tlb della pagina da sacrificare
+					
+					ix = pagetable_getFlagsByIndex(indexR) >> 2;
+					swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
+					as->count_proc--;
+					paddr = indexR*PAGE_SIZE;
+				}
 			}
-		}
-		//-------------------------------------------
-		pf_z++;
-		as_zero_region(paddr, 1);
+			//-------------------------------------------
+			pf_z++;
+			as_zero_region(paddr, 1);
+			/*
+			* l'errore col caricamento precedente stava nel fatto che a prescindere dall' "offset virtuale"
+			* in cui si trovasse un segmento del programma, questo veniva comunque caricato all' inizio della
+			* corrispondente pagina fisica. Il risultato era ovviamente un esecuzione "disallineata". 
+			*/
+			
+			if (faultaddress == vbase1){ // mi trovo all' inizio della prima pagina (il segmento si trova all'inizio o è presente un offset?)
+				if (as->code_sz<PAGE_SIZE-(as->code_offset&~PAGE_FRAME)) // la quantità da leggere dipende dalla dimensione del segmento (è < 4KB ?)
+					to_read = as->code_sz;
+				else
+					to_read = PAGE_SIZE-(as->code_offset&~PAGE_FRAME);
+			}
+			else if (faultaddress == vtop1 - PAGE_SIZE){ // mi trovo all' inizio dell' ultima pagina
+				to_read = as->code_sz - (as->as_npages1-1)*PAGE_SIZE; // quanti bytes ci sono dall' inizio del segmento (virtuale)?
+				if (as->code_offset&~PAGE_FRAME) // rimuovo eventuale offset della prima pagina
+					to_read-=(as->code_offset&~PAGE_FRAME);
+			}
+			else //mi trovo in una pagina intermedia del segmento (sicuramente 4KB consecutivi)
+				to_read = PAGE_SIZE;
 
-		if (faultaddress == vbase2){
-			if (as->data_sz<PAGE_SIZE-(as->data_offset&~PAGE_FRAME))
-				to_read = as->data_sz;
-			else
-				to_read = PAGE_SIZE-(as->data_offset&~PAGE_FRAME);
-		}
-		else if (faultaddress == vtop2 - PAGE_SIZE){
-			to_read = as->data_sz - (as->as_npages2-1)*PAGE_SIZE;
-			if (as->data_offset&~PAGE_FRAME)
-				to_read-=(as->data_offset&~PAGE_FRAME);
-		}
-		else
-			to_read = PAGE_SIZE;
-		
+			result = load_page_from_elf(as->v, paddr+(faultaddress==vbase1?as->code_offset&~PAGE_FRAME:0), /* se prima pagina del segmento, scrivo in paddr a partire da offset */
+						to_read,
+						faultaddress==vbase1?as->code_offset:(as->code_offset&PAGE_FRAME)+faultaddress-vbase1);
+						/* se prima pagina del segmento, l'offset sarà code_offset. Altrimenti inizio del segmento più quantitativo che voglio leggere*/
+			pf_d++;
+			pf_e++;
+			
+			flags = 0x01; //READONLY
+			if (ix!=-1)
+				flags |= ix<<2;
+			result = pagetable_addentry(faultaddress, paddr, pid, flags);
 
-		result = load_page_from_elf(as->v, paddr+(faultaddress==vbase2?as->data_offset&~PAGE_FRAME:0),
-						to_read, 
-						faultaddress==vbase2?as->data_offset:(as->data_offset&PAGE_FRAME)+faultaddress-vbase2);
-		pf_d++;
-		pf_e++;
-		result = pagetable_addentry(faultaddress, paddr, pid, flags);
+			
+			if(result<0){
+				return -1;
+			}
 		
-		// ?
-		if(result<0){
-			return -1;
 		}
-		
-	}
-	else if (faultaddress >= stackbase && faultaddress < stacktop) {//se falso tutto quello di prima sono in stack
-		//Domenico -- GESTIONE PAGE REPLACEMENT
-		as->count_proc++;
-		if (as->count_proc>=MAX_PROC_PT){
-			indexR = pagetable_replacement(pid);
-			ix = pagetable_getFlagsByIndex(indexR) >> 2; //overwrite tlb_index
-			swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
-			as->count_proc--;
-			paddr = indexR*PAGE_SIZE;
-		}
-		else{
-			paddr = getppages(1);
-			if (paddr==0){
+		else if (faultaddress >= vbase2 && faultaddress < vtop2) {
+			//Domenico -- GESTIONE PAGE REPLACEMENT
+			as->count_proc++;
+			if (as->count_proc>=MAX_PROC_PT){
 				indexR = pagetable_replacement(pid);
 				ix = pagetable_getFlagsByIndex(indexR) >> 2; //overwrite tlb_index
 				swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
 				as->count_proc--;
 				paddr = indexR*PAGE_SIZE;
 			}
-		}
-		//-------------------------------------------
+			else{
+				paddr = getppages(1);
+				if (paddr==0){
+					indexR = pagetable_replacement(pid);
+					ix = pagetable_getFlagsByIndex(indexR) >> 2; //overwrite tlb_index
+					swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
+					as->count_proc--;
+					paddr = indexR*PAGE_SIZE;
+				}
+			}
+			//-------------------------------------------
+			pf_z++;
+			as_zero_region(paddr, 1);
 
-		as_zero_region(paddr, 1);
-		pf_z++;
-		result = pagetable_addentry(faultaddress, paddr, pid, flags); // qui puoi scrivere
-		if(result<0){
-			return -1;
-		}
-		
-	}
-	else {
-		return EFAULT;
-	}
+			if (faultaddress == vbase2){
+				if (as->data_sz<PAGE_SIZE-(as->data_offset&~PAGE_FRAME))
+					to_read = as->data_sz;
+				else
+					to_read = PAGE_SIZE-(as->data_offset&~PAGE_FRAME);
+			}
+			else if (faultaddress == vtop2 - PAGE_SIZE){
+				to_read = as->data_sz - (as->as_npages2-1)*PAGE_SIZE;
+				if (as->data_offset&~PAGE_FRAME)
+					to_read-=(as->data_offset&~PAGE_FRAME);
+			}
+			else
+				to_read = PAGE_SIZE;
+			
 
-	
+			result = load_page_from_elf(as->v, paddr+(faultaddress==vbase2?as->data_offset&~PAGE_FRAME:0),
+							to_read, 
+							faultaddress==vbase2?as->data_offset:(as->data_offset&PAGE_FRAME)+faultaddress-vbase2);
+			pf_d++;
+			pf_e++;
+
+			if (ix!=-1)
+				flags |= ix<<2;
+			result = pagetable_addentry(faultaddress, paddr, pid, flags);
+			// ?
+			if(result<0){
+				return -1;
+			}
+			
+		}
+		else if (faultaddress >= stackbase && faultaddress < stacktop) {//se falso tutto quello di prima sono in stack
+			//Domenico -- GESTIONE PAGE REPLACEMENT
+			as->count_proc++;
+			if (as->count_proc>=MAX_PROC_PT){
+				indexR = pagetable_replacement(pid);
+				ix = pagetable_getFlagsByIndex(indexR) >> 2; //overwrite tlb_index
+				swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
+				as->count_proc--;
+				paddr = indexR*PAGE_SIZE;
+			}
+			else{
+				paddr = getppages(1);
+				if (paddr==0){
+					indexR = pagetable_replacement(pid);
+					ix = pagetable_getFlagsByIndex(indexR) >> 2; //overwrite tlb_index
+					swapfile_swapout(pagetable_getVaddrByIndex(indexR), indexR*PAGE_SIZE, pagetable_getPidByIndex(indexR), pagetable_getFlagsByIndex(indexR));
+					as->count_proc--;
+					paddr = indexR*PAGE_SIZE;
+				}
+			}
+			//-------------------------------------------
+
+			as_zero_region(paddr, 1);
+			pf_z++;
+			if (ix!=-1)
+				flags |= ix<<2;
+			result = pagetable_addentry(faultaddress, paddr, pid, flags); // qui puoi scrivere
+			if(result<0){
+				return -1;
+			}
+			
+		}
+		else {
+			return EFAULT;
+		}
+
+	}
 	/* make sure it's page-aligned */
 	KASSERT((paddr & PAGE_FRAME) == paddr);
 	
 	ehi = faultaddress | pid << 6;
 	elo = paddr | TLBLO_VALID | TLBLO_GLOBAL;
-	if ((flags&0x01)!=0x01)
+	if ((flags&0x01)!=0x01) //se non è settato l'ultimo bit allora la pagina è modificabile
 		elo |= TLBLO_DIRTY; //page is modifiable
 	
 	/* Abbiamo inserito l'informazione sul pid perciò TLBLO_GLOBAL non dovrebbe essere presente. Tuttavia

@@ -34,7 +34,10 @@
 #include <clock.h>
 #include <thread.h>
 #include <current.h>
-
+#include "opt-paging.h"
+#if OPT_PAGING
+#include "pt.h"
+#endif
 /*
  * Time handling.
  *
@@ -95,7 +98,9 @@ hardclock(void)
 	/*
 	 * Collect statistics here as desired.
 	 */
-
+#if OPT_PAGING
+	lru_update_cnt();
+#endif
 	curcpu->c_hardclocks++;
 	if ((curcpu->c_hardclocks % MIGRATE_HARDCLOCKS) == 0) {
 		thread_consider_migration();

@@ -41,7 +41,7 @@ void pagetable_remove_entry(int replace_index);
 
 void pagetable_destroy(void);
 
-/****************** DA RIVEDERE *************************/
+
 int pagetable_replacement(pid_t pid);
 
 /* Ritorna indirizzo virtuale di pagina della entry i-esima nella IPT */
@@ -62,4 +62,5 @@ void pagetable_setTlbIndex(int index, unsigned char val);
 /* Setta a 'val' il flag della pagina fisica con indice 'index' nella IPT */
 void pagetable_setFlagsAtIndex(int index, unsigned char val);
 
+void lru_update_cnt(void);
 #endif /* _PT_H_ */
